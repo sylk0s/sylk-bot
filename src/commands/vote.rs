@@ -18,7 +18,6 @@ struct Voting;
 // Post a new vote
 #[command]
 async fn post(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.reply(&ctx.http, "aaa").await?;
     let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 3301, 1234);
     msg.reply(&ctx.http, v.uuid()).await?;
     Ok(())
@@ -27,7 +26,6 @@ async fn post(ctx: &Context, msg: &Message) -> CommandResult {
 // Force the end of a vote with an id
 #[command]
 async fn force(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.reply(&ctx.http, "aaa").await?;
     msg.reply(&ctx.http, Vote::clname::<Vote>()).await?;
     Ok(())
 }
@@ -35,7 +33,9 @@ async fn force(ctx: &Context, msg: &Message) -> CommandResult {
 // Quitely end a vote with no result handling
 #[command]
 async fn end(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.reply(&ctx.http, "aaa").await?;
+    let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 3301, 1234);
+    v.clsave::<Vote>("votes").await?;
+    msg.reply(&ctx.http, "it works").await?;
     Ok(())
 }
 
@@ -43,17 +43,14 @@ async fn end(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 async fn list(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(&ctx.http, "aaa").await?;
-    Ok(())
     /*
-    let mut data = ctx.data.write().await;
-    let votevec = data.get::<Vec<Vote>>().unwrap();
-    msg.reply("AAA {} ", votevec[0]);
-
-    Ok(())
+    let votes = Vote::clget::<Vote>().await?;
+    println!("{:?}", votes);
     */
+    Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Vote {
     name:String,
     description:String,
