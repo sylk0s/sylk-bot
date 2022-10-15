@@ -5,9 +5,9 @@ use serenity::prelude::*;
 
 use serde::{Serialize, Deserialize};
 use chrono::prelude::*;
-use std::cmp::{PartialOrd, Ordering};
+//use std::cmp::{PartialOrd, Ordering};
 
-//use crate::utils::cloud::{CloudSync, Unique};
+use crate::utils::cloud::{CloudSync, Unique};
 
 #[group]
 #[prefixes("vote", "v")]
@@ -19,6 +19,8 @@ struct Voting;
 #[command]
 async fn post(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(&ctx.http, "aaa").await?;
+    let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 3301, 1234);
+    msg.reply(&ctx.http, v.uuid()).await?;
     Ok(())
 }
 
@@ -26,6 +28,7 @@ async fn post(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 async fn force(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(&ctx.http, "aaa").await?;
+    msg.reply(&ctx.http, Vote::clname::<Vote>()).await?;
     Ok(())
 }
 
@@ -109,10 +112,10 @@ impl Vote {
     }
 
 }
-/*
+
 impl CloudSync for Vote {
-    fn clname() -> String {
-        String::from("votes")
+    fn clname<Vote>() -> &'static str {
+        "votes"
     }
 }
 
@@ -121,4 +124,3 @@ impl Unique for Vote {
         self.id 
     }
 }
-*/
