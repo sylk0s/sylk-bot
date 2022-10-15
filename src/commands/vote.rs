@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 use chrono::prelude::*;
 //use std::cmp::{PartialOrd, Ordering};
 
+use crate::VoteContainer;
 use crate::utils::cloud::{CloudSync, Unique};
 
 #[group]
@@ -26,7 +27,10 @@ async fn post(ctx: &Context, msg: &Message) -> CommandResult {
 // Force the end of a vote with an id
 #[command]
 async fn force(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.reply(&ctx.http, Vote::clname::<Vote>()).await?;
+    let mut data = ctx.data.write().await;
+    let votes = data.get_mut::<VoteContainer>().unwrap();
+    votes[0].name = String::from("c");
+    println!("{:?}", votes);
     Ok(())
 }
 
