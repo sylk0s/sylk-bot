@@ -47,10 +47,8 @@ async fn end(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 async fn list(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(&ctx.http, "aaa").await?;
-    /*
     let votes = Vote::clget::<Vote>().await?;
     println!("{:?}", votes);
-    */
     Ok(())
 }
 

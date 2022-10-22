@@ -23,10 +23,7 @@ pub trait CloudSync where for<'a> Self: Deserialize<'a> + Serialize + Unique + S
     // Get all objects from a field
     async fn clget<T: for<'a> Deserialize<'a>>() ->  Result<Vec<T>, Box<dyn std::error::Error + Send + Sync>> {
         let db = FirestoreDb::new(&config_env_var("PROJECT_ID")?).await?;
-
-        let objects: Vec<T> = db.query_obj(
-            FirestoreQueryParams::new(Self::clname::<T>().into()),).await?;
-
+        let objects: Vec<T> = db.query_obj(FirestoreQueryParams::new(Self::clname::<T>().into())).await?;
         Ok(objects)
     }
 
