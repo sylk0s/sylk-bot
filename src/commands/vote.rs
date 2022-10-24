@@ -51,9 +51,15 @@ async fn cancel(ctx: &Context, msg: &Message) -> CommandResult {
 // List the current active votes
 #[command]
 async fn list(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.reply(&ctx.http, "aaa").await?;
-    let votes = Vote::clget::<Vote>().await?;
-    println!("{:?}", votes);
+    let mut data = ctx.data.write().await;
+    let votes = data.get_mut::<VoteContainer>().unwrap();
+    let votelist = votes.iter().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    msg.channel_id.send_message(&ctx.http, |m| {
+        m.embed(|e| {
+            e.title("List of votes:")
+                .description(votelist)
+        })
+    }).await?;
     Ok(())
 }
 
@@ -62,13 +68,14 @@ async fn debug(ctx: &Context, msg: &Message) -> CommandResult {
     let cloud_votes = Vote::clget::<Vote>().await?;
     let mut data = ctx.data.write().await;
     let bot_votes = data.get_mut::<VoteContainer>().unwrap();
-    msg.channel_id.send_message(&ctx.http, |m| {
+    let m = msg.channel_id.send_message(&ctx.http, |m| {
         m.embed(|e| {
             e.title("Voting Debug")
             .field("Cloud votes", format!("{:?}", cloud_votes), false)
             .field("Local votes", format!("{:?}", bot_votes), false)
         })
     }).await?;
+    m.react(&ctx.http, '👀').await?;
     Ok(())
 }
 
@@ -101,8 +108,10 @@ impl Vote {
                 e.title(name)
                     .description(desc)
             })
-        }).await;
-        v.id = me.unwrap().id.0;
+        }).await.expect("aaa");
+        me.react(&ctx.http, '👍').await;
+        me.react(&ctx.http, '👎').await;
+        v.id = me.id.0;
         v
     }
 
