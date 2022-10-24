@@ -134,7 +134,7 @@ async fn main() {
     {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
-        data.insert::<VoteContainer>(vec![ Vote::new(String::from("a"), String::from("b"), 0, 0)]);
+        data.insert::<VoteContainer>(vec![]);
     }
 
     let shard_manager = client.shard_manager.clone();

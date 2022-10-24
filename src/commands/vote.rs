@@ -1,5 +1,5 @@
 use serenity::framework::standard::macros::{command, group};
-use serenity::framework::standard::CommandResult;
+use serenity::framework::standard::{CommandResult, Args};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 
@@ -13,20 +13,25 @@ use crate::utils::cloud::{CloudSync, Unique};
 #[group]
 #[prefixes("vote", "v")]
 #[default_command(list)]
-#[commands(post, force, end, list)]
+#[commands(post, cancel, end, list, debug)]
 struct Voting;
 
 // Post a new vote
 #[command]
-async fn post(ctx: &Context, msg: &Message) -> CommandResult {
-    let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 3301, 1234);
-    msg.reply(&ctx.http, v.uuid()).await?;
+async fn post(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+    let ar = args.raw().collect::<Vec<&str>>();
+    let v = Vote::on_vote_create(ar[0].to_string(), ar[1..].iter().map(|a| a.to_string()).reduce(
+            |a, b| { format!("{} {}",a ,b) }
+            ).unwrap(), msg.author.id.0, ctx, &msg.channel_id).await;
+    let mut data = ctx.data.write().await;
+    let votes = data.get_mut::<VoteContainer>().unwrap();
+    votes.push(v);
     Ok(())
 }
 
 // Force the end of a vote with an id
 #[command]
-async fn force(ctx: &Context, msg: &Message) -> CommandResult {
+async fn end(ctx: &Context, msg: &Message) -> CommandResult {
     let mut data = ctx.data.write().await;
     let votes = data.get_mut::<VoteContainer>().unwrap();
     votes[0].name = String::from("c");
@@ -36,8 +41,8 @@ async fn force(ctx: &Context, msg: &Message) -> CommandResult {
 
 // Quitely end a vote with no result handling
 #[command]
-async fn end(ctx: &Context, msg: &Message) -> CommandResult {
-    let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 3301, 1234);
+async fn cancel(ctx: &Context, msg: &Message) -> CommandResult {
+    let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 1234);
     v.clsave::<Vote>("votes").await?;
     msg.reply(&ctx.http, "it works").await?;
     Ok(())
@@ -52,29 +57,53 @@ async fn list(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
+#[command]
+async fn debug(ctx: &Context, msg: &Message) -> CommandResult {
+    let cloud_votes = Vote::clget::<Vote>().await?;
+    let mut data = ctx.data.write().await;
+    let bot_votes = data.get_mut::<VoteContainer>().unwrap();
+    msg.channel_id.send_message(&ctx.http, |m| {
+        m.embed(|e| {
+            e.title("Voting Debug")
+            .field("Cloud votes", format!("{:?}", cloud_votes), false)
+            .field("Local votes", format!("{:?}", bot_votes), false)
+        })
+    }).await?;
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Vote {
     name:String,
     description:String,
-    id:u32,
-    creator:u32,
+    id:u64,
+    creator:u64,
     end_time:DateTime<Utc>,
 }
 
 impl Vote {
-    pub fn new(name:String, description:String, id:u32, creator:u32) -> Vote {
+    pub fn new(name:String, description:String, creator:u64) -> Vote {
         Vote {
             name,
             description,
-            id,
+            id: 0,
             creator,
             end_time: Utc::now(),
         }
     }
 
     // Initialized the vote in all sorts of places
-    fn on_vote_create() -> () {
-        unimplemented!();
+    async fn on_vote_create(name: String, desc: String, creator: u64, ctx: &Context, ch_id: &ChannelId) -> Vote {
+        let mut v: Vote = Vote::new(name.clone(), desc.clone(), creator);
+        v.clsave::<Vote>("votes").await;
+        let me = ch_id.send_message(&ctx.http, |m| {
+            m.embed(|e| {
+                e.title(name)
+                    .description(desc)
+            })
+        }).await;
+        v.id = me.unwrap().id.0;
+        v
     }
 
     // Cleans up a vote, publishes the results
@@ -119,7 +148,7 @@ impl CloudSync for Vote {
 }
 
 impl Unique for Vote {
-    fn uuid(&self) -> u32 {
+    fn uuid(&self) -> u64 {
         self.id 
     }
 }
