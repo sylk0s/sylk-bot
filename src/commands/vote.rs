@@ -4,8 +4,9 @@ use serenity::model::prelude::*;
 use serenity::prelude::*;
 
 use serde::{Serialize, Deserialize};
-use chrono::prelude::*;
-//use std::cmp::{PartialOrd, Ordering};
+use chrono::{prelude::*, Duration};
+use std::cmp::{PartialOrd, Ordering};
+use std::error::Error;
 
 use crate::VoteContainer;
 use crate::utils::cloud::{CloudSync, Unique};
@@ -20,31 +21,30 @@ struct Voting;
 #[command]
 async fn post(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let ar = args.raw().collect::<Vec<&str>>();
-    let v = Vote::on_vote_create(ar[0].to_string(), ar[1..].iter().map(|a| a.to_string()).reduce(
-            |a, b| { format!("{} {}",a ,b) }
-            ).unwrap(), msg.author.id.0, ctx, &msg.channel_id).await;
-    let mut data = ctx.data.write().await;
-    let votes = data.get_mut::<VoteContainer>().unwrap();
-    votes.push(v);
+    Vote::on_vote_create(
+        ar[0].to_string(), 
+        ar[1..].iter().map(|a| a.to_string()).reduce(|a, b| { format!("{} {}",a ,b) }).unwrap(), 
+        msg.author.id.0, 
+        ctx,
+        &msg.channel_id).await.expect("Vote creation failed");
     Ok(())
 }
 
 // Force the end of a vote with an id
 #[command]
-async fn end(ctx: &Context, msg: &Message) -> CommandResult {
+async fn end(ctx: &Context, _msg: &Message, args: Args) -> CommandResult {
+    let _ar = args.raw().collect::<Vec<&str>>();
     let mut data = ctx.data.write().await;
     let votes = data.get_mut::<VoteContainer>().unwrap();
     votes[0].name = String::from("c");
-    println!("{:?}", votes);
     Ok(())
 }
 
 // Quitely end a vote with no result handling
 #[command]
-async fn cancel(ctx: &Context, msg: &Message) -> CommandResult {
-    let v: Vote = Vote::new(String::from("testvote"), String::from("testing"), 1234);
-    v.clsave::<Vote>("votes").await?;
-    msg.reply(&ctx.http, "it works").await?;
+async fn cancel(ctx: &Context, _msg: &Message, args: Args) -> CommandResult {
+    let ar = args.raw().collect::<Vec<&str>>();
+    Vote::remove_vote(ar[0].parse::<u64>().unwrap(), ctx).await?;
     Ok(())
 }
 
@@ -95,51 +95,95 @@ impl Vote {
             description,
             id: 0,
             creator,
-            end_time: Utc::now(),
+            end_time: Utc::now() + Duration::minutes(1),
         }
     }
 
     // Initialized the vote in all sorts of places
-    async fn on_vote_create(name: String, desc: String, creator: u64, ctx: &Context, ch_id: &ChannelId) -> Vote {
+    async fn on_vote_create(name: String, desc: String, creator: u64, ctx: &Context, ch_id: &ChannelId) -> Result<(), Box<dyn Error>>{
         let mut v: Vote = Vote::new(name.clone(), desc.clone(), creator);
-        v.clsave::<Vote>("votes").await;
+
+        // sends message
         let me = ch_id.send_message(&ctx.http, |m| {
             m.embed(|e| {
                 e.title(name)
                     .description(desc)
             })
-        }).await.expect("aaa");
-        me.react(&ctx.http, '👍').await;
-        me.react(&ctx.http, '👎').await;
+        }).await?;
+
+        // adds reactions
+        me.react(&ctx.http, '👍').await?;
+        me.react(&ctx.http, '👎').await?;
+
+        // Update vote data with id of msg
         v.id = me.id.0;
-        v
+
+        // push vote to cloud list of votes
+        v.clsave::<Vote>("votes").await.expect("Cloud sync failed");
+
+        // push vote to internal list of votes
+        let mut data = ctx.data.write().await;
+        let votes = data.get_mut::<VoteContainer>().unwrap();
+        votes.push(v);
+
+        Ok(())
     }
 
     // Cleans up a vote, publishes the results
-    fn on_vote_end(&self) -> () {
-        unimplemented!();
+    async fn on_vote_end(&self, ctx: &Context) -> Result<(), String> {
+        // determine winner
+        
+        // update final message
+        
+
+        if let Err(_e) = self.clrm::<Vote>("votes").await {
+            return Err(String::from("Error syncing with the cloud"));
+        }
+        Ok(())
     }
 
-    fn update_database() {
-        unimplemented!();
+    async fn remove_vote(id: u64, ctx: &Context) -> Result<(), String> {
+        let mut data = ctx.data.write().await;
+        let votes = data.get_mut::<VoteContainer>().unwrap();
+        for i in 0..votes.len() {
+            if votes[i].id == id {
+                votes.remove(i).clrm::<Vote>("votes").await.unwrap();
+                return Ok(());
+            }
+        } 
+        Err(String::from("Vote not found"))
     }
-/*
+
     // implement proper time comparison
-    fn reload(votestr: &String, vote_list: &mut Vec<Vote>) {
-        let t: Vec<Vote> = Self::clget();
-        for vote in t {
-            match vote.end_time.partial_cmp(&Utc::now()) {
-                Some(Ordering::Greater) => vote_list.push(vote),
-                _ => vote.on_vote_end(),
+    pub async fn reload(ctx: &Context) -> Result<(), Box<dyn Error>> {
+        // Get both sources of votes
+        let mut t: Vec<Vote> = Self::clget().await.unwrap();
+        let mut data = ctx.data.write().await;
+        let votes = data.get_mut::<VoteContainer>().unwrap();
+
+        // original things weren't actually breaking ;)
+        while t.len() != 0 {
+            votes.push(t.remove(0));
+        }
+       
+        Self::check_votes_over(votes, ctx).await;
+        Ok(())
+    }
+    
+    async fn check_votes_over(votes: &mut Vec<Vote>, ctx: &Context) {
+        let mut to_remove = Vec::new();
+        // mark for deletion (god i hate this)
+        for i in 0..votes.len() {
+            if let Some(Ordering::Less) = votes[i].end_time.partial_cmp(&Utc::now()) {
+                votes[i].on_vote_end(ctx).await.unwrap();
+                to_remove.push(i);
             }
         }
-    }
-*/
 
-    // Prints out the list of votes?
-    // tldr; basically a subcommand i need to figure out
-    fn query(votes: Vec<Vote>) {
-        unimplemented!(); // list out votes
+        for i in to_remove.iter().rev() {
+            votes.remove(*i);
+        }
+        
     }
 
     // Function to check if the vote has ended

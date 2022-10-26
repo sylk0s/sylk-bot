@@ -48,8 +48,11 @@ struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _: Context, ready: Ready) {
-        info!("Connected as {}", ready.user.name);
+    async fn ready(&self, ctx: Context, ready: Ready) {
+        println!("Connected as {}", ready.user.name);
+
+        Vote::reload(&ctx).await.expect("Failed to reload the votes");
+        println!("Reloaded all cloud votes");
     }
 
     async fn resume(&self, _: Context, _: ResumedEvent) {
