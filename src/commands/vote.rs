@@ -2,6 +2,7 @@ use serenity::framework::standard::macros::{command, group};
 use serenity::framework::standard::{CommandResult, Args};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
+use serenity::http::Http;
 
 use serde::{Serialize, Deserialize};
 use chrono::{prelude::*, Duration};
@@ -83,7 +84,8 @@ async fn debug(ctx: &Context, msg: &Message) -> CommandResult {
 pub struct Vote {
     name:String,
     description:String,
-    id:u64,
+    msg_id:u64,
+    channel_id:u64,
     creator:u64,
     end_time:DateTime<Utc>,
 }
@@ -93,7 +95,8 @@ impl Vote {
         Vote {
             name,
             description,
-            id: 0,
+            msg_id: 0,
+            channel_id: 0,
             creator,
             end_time: Utc::now() + Duration::minutes(1),
         }
@@ -116,7 +119,8 @@ impl Vote {
         me.react(&ctx.http, '👎').await?;
 
         // Update vote data with id of msg
-        v.id = me.id.0;
+        v.msg_id = me.id.0;
+        v.channel_id = ch_id.0;
 
         // push vote to cloud list of votes
         v.clsave::<Vote>("votes").await.expect("Cloud sync failed");
@@ -130,9 +134,35 @@ impl Vote {
     }
 
     // Cleans up a vote, publishes the results
-    async fn on_vote_end(&self) -> Result<(), String> {
+    async fn on_vote_end(&self, http: &Http) -> Result<(), String> {
         // determine winner
-        
+        let msg = http.get_message(self.channel_id,self.msg_id).await.unwrap(); 
+
+        let mut yes = 0;
+        let mut no = 0;
+
+        for r in msg.reactions.iter() {
+            if r.reaction_type == ReactionType::from('👍') {
+                yes = r.count-1;
+            }
+            if r.reaction_type == ReactionType::from('👎') {
+                no = r.count-1; 
+            }
+        }
+
+        let passed = yes > no;
+        if let Ok(ch) = http.get_channel(self.channel_id).await {
+            ch.guild().expect("Channel id invalid").send_message(&http, |m| {
+                m.embed(|e| {
+                    e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
+                        .description(self.description.clone())
+                        .color(if passed {0x00ff00} else {0xff0000})
+                })
+            }).await.expect("it didnt workn");
+        } else {
+            return Err(String::from("it borkn"))
+        }
+
         // update final message
         
 
@@ -146,7 +176,7 @@ impl Vote {
         let mut data = ctx.data.write().await;
         let votes = data.get_mut::<VoteContainer>().unwrap();
         for i in 0..votes.len() {
-            if votes[i].id == id {
+            if votes[i].msg_id == id {
                 votes.remove(i).clrm::<Vote>("votes").await.unwrap();
                 return Ok(());
             }
@@ -166,16 +196,16 @@ impl Vote {
             votes.push(t.remove(0));
         }
        
-        Self::check_votes_over(votes).await;
+        Self::check_votes_over(votes, &ctx.http.clone()).await;
         Ok(())
     }
     
-    pub async fn check_votes_over(votes: &mut Vec<Vote>) {
+    pub async fn check_votes_over(votes: &mut Vec<Vote>, http: &Http) {
         let mut to_remove = Vec::new();
         // mark for deletion (god i hate this)
         for i in 0..votes.len() {
             if let Some(Ordering::Less) = votes[i].end_time.partial_cmp(&Utc::now()) {
-                votes[i].on_vote_end().await.unwrap();
+                votes[i].on_vote_end(http).await.unwrap();
                 to_remove.push(i);
             }
         }
@@ -185,13 +215,6 @@ impl Vote {
             println!("removed vote");
         }
     }
-
-    // Function to check if the vote has ended
-    // use tokio when i get around to it
-    fn check_votes_end() {
-        unimplemented!();
-    }
-
 }
 
 impl CloudSync for Vote {
@@ -202,6 +225,6 @@ impl CloudSync for Vote {
 
 impl Unique for Vote {
     fn uuid(&self) -> u64 {
-        self.id 
+        self.msg_id 
     }
 }

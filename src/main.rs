@@ -52,9 +52,6 @@ impl EventHandler for Handler {
 
         Vote::reload(&ctx).await.expect("Failed to reload the votes");
         println!("Reloaded all cloud votes");
-
-
-        println!("HELP");
     }
 
     async fn resume(&self, _: Context, _: ResumedEvent) {
@@ -153,16 +150,15 @@ async fn main() {
 
     // spawn checker thread
     let data = client.data.clone();
+    let http2 = client.cache_and_http.http.clone();
 
     tokio::spawn(async move { 
         for _ in eventual::Timer::new().interval_ms(1000).iter() { 
             let mut aaa = data.write().await;
             let votes = aaa.get_mut::<VoteContainer>().unwrap();
-            Vote::check_votes_over(votes).await;
+            Vote::check_votes_over(votes, &http2).await;
         }
     });
-
-    // app handle
 
     if let Err(why) = client.start().await {
         error!("Client error: {:?}", why);
