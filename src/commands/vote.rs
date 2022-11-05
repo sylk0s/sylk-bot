@@ -130,7 +130,7 @@ impl Vote {
     }
 
     // Cleans up a vote, publishes the results
-    async fn on_vote_end(&self, ctx: &Context) -> Result<(), String> {
+    async fn on_vote_end(&self) -> Result<(), String> {
         // determine winner
         
         // update final message
@@ -166,24 +166,24 @@ impl Vote {
             votes.push(t.remove(0));
         }
        
-        Self::check_votes_over(votes, ctx).await;
+        Self::check_votes_over(votes).await;
         Ok(())
     }
     
-    async fn check_votes_over(votes: &mut Vec<Vote>, ctx: &Context) {
+    pub async fn check_votes_over(votes: &mut Vec<Vote>) {
         let mut to_remove = Vec::new();
         // mark for deletion (god i hate this)
         for i in 0..votes.len() {
             if let Some(Ordering::Less) = votes[i].end_time.partial_cmp(&Utc::now()) {
-                votes[i].on_vote_end(ctx).await.unwrap();
+                votes[i].on_vote_end().await.unwrap();
                 to_remove.push(i);
             }
         }
 
         for i in to_remove.iter().rev() {
             votes.remove(*i);
+            println!("removed vote");
         }
-        
     }
 
     // Function to check if the vote has ended

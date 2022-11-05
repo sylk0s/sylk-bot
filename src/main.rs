@@ -1,6 +1,5 @@
 mod commands;
 mod utils;
-
 use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
@@ -53,6 +52,9 @@ impl EventHandler for Handler {
 
         Vote::reload(&ctx).await.expect("Failed to reload the votes");
         println!("Reloaded all cloud votes");
+
+
+        println!("HELP");
     }
 
     async fn resume(&self, _: Context, _: ResumedEvent) {
@@ -134,6 +136,8 @@ async fn main() {
         .await
         .expect("Err creating client");
 
+    // 
+
     {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
@@ -148,7 +152,15 @@ async fn main() {
     });
 
     // spawn checker thread
-    // need to figure out how to reference this globally from list command
+    let data = client.data.clone();
+
+    tokio::spawn(async move { 
+        for _ in eventual::Timer::new().interval_ms(1000).iter() { 
+            let mut aaa = data.write().await;
+            let votes = aaa.get_mut::<VoteContainer>().unwrap();
+            Vote::check_votes_over(votes).await;
+        }
+    });
 
     // app handle
 
