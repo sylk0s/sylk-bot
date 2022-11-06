@@ -136,7 +136,7 @@ impl Vote {
     // Cleans up a vote, publishes the results
     async fn on_vote_end(&self, http: &Http) -> Result<(), String> {
         // determine winner
-        let msg = http.get_message(self.channel_id,self.msg_id).await.unwrap(); 
+        let mut msg = http.get_message(self.channel_id,self.msg_id).await.unwrap(); 
 
         let mut yes = 0;
         let mut no = 0;
@@ -151,17 +151,35 @@ impl Vote {
         }
 
         let passed = yes > no;
+        /*
         if let Ok(ch) = http.get_channel(self.channel_id).await {
             ch.guild().expect("Channel id invalid").send_message(&http, |m| {
-                m.embed(|e| {
-                    e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
-                        .description(self.description.clone())
-                        .color(if passed {0x00ff00} else {0xff0000})
-                })
             }).await.expect("it didnt workn");
         } else {
             return Err(String::from("it borkn"))
         }
+        */
+
+        msg.edit(http, |m| {
+                m.embed(|e| {
+                    e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
+                        .description(self.description.clone())
+                        .color(if passed {0x00ff00} else {0xff0000})
+                        .field("Yes:", format!("{yes}"), false)
+                        .field("No:", format!("{no}"), false)
+                })
+        }).await.unwrap();
+        /*
+
+        msg.edit(|m| {
+                m.embed(|e| {
+                    e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
+                        .description(self.description.clone())
+                        .color(if passed {0x00ff00} else {0xff0000})
+                });
+            });
+        */
+
 
         // update final message
         
