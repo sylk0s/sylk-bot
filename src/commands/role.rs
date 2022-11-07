@@ -5,6 +5,6 @@ use serenity::model::prelude::*;
 use serenity::prelude::*;
 
 #[command]
-async fn role(ctx: &Context, msg: &Message) -> CommandResult {
+async fn role(_ctx: &Context, _msg: &Message) -> CommandResult {
    unimplemented!(); 
 }

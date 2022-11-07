@@ -24,28 +24,45 @@ async fn post(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let ar = args.raw().collect::<Vec<&str>>();
     Vote::on_vote_create(
         ar[0].to_string(), 
-        ar[1..].iter().map(|a| a.to_string()).reduce(|a, b| { format!("{} {}",a ,b) }).unwrap(), 
-        msg.author.id.0, 
+        ar[3..].iter().map(|a| a.to_string()).reduce(|a, b| { format!("{} {}",a ,b) }).unwrap(), 
+        msg.author.id.0,
+        msg.guild_id.unwrap().0,
         ctx,
-        &msg.channel_id).await.expect("Vote creation failed");
+        &msg.channel_id,
+        ar[1].parse::<u32>().unwrap(),
+        ar[2].parse::<u32>().unwrap(),
+        ).await.expect("Vote creation failed");
     Ok(())
 }
 
 // Force the end of a vote with an id
 #[command]
-async fn end(ctx: &Context, _msg: &Message, args: Args) -> CommandResult {
-    let _ar = args.raw().collect::<Vec<&str>>();
+async fn end(ctx: &Context, msg: &Message) -> CommandResult {
     let mut data = ctx.data.write().await;
     let votes = data.get_mut::<VoteContainer>().unwrap();
-    votes[0].name = String::from("c");
+    if let Some(r) = &msg.referenced_message {
+        let i = Vote::get_vote_index(r.id.try_into().unwrap(), &votes).unwrap();
+        let v = &votes[i];
+        v.on_vote_end(&ctx.http).await.unwrap();
+        Vote::remove_vote(i.try_into().unwrap(), &ctx).await.unwrap();
+    } else {
+        msg.reply(&ctx.http, "Didn't reply to a message!").await?;
+    };
     Ok(())
 }
 
 // Quitely end a vote with no result handling
 #[command]
-async fn cancel(ctx: &Context, _msg: &Message, args: Args) -> CommandResult {
-    let ar = args.raw().collect::<Vec<&str>>();
-    Vote::remove_vote(ar[0].parse::<u64>().unwrap(), ctx).await?;
+async fn cancel(ctx: &Context, msg: &Message) -> CommandResult {
+    let mut data = ctx.data.write().await;
+    let votes = data.get_mut::<VoteContainer>().unwrap();
+    if let Some(r) = &msg.referenced_message {
+        let i = Vote::get_vote_index(r.id.try_into().unwrap(), &votes).unwrap();
+        Vote::remove_vote(i.try_into().unwrap(), &ctx).await.unwrap();
+        msg.delete(&ctx.http).await.unwrap();
+    } else {
+        msg.reply(&ctx.http, "Didn't reply to a message!").await?;
+    };
     Ok(())
 }
 
@@ -86,41 +103,55 @@ pub struct Vote {
     description:String,
     msg_id:u64,
     channel_id:u64,
+    guild_id:u64,
     creator:u64,
     end_time:DateTime<Utc>,
 }
 
 impl Vote {
-    pub fn new(name:String, description:String, creator:u64) -> Vote {
+    pub fn new(name:String, description:String, creator:u64, hrs: u32, min: u32) -> Vote {
         Vote {
             name,
             description,
             msg_id: 0,
             channel_id: 0,
+            guild_id: 0,
             creator,
-            end_time: Utc::now() + Duration::minutes(1),
+            end_time: Utc::now() + Duration::minutes((hrs*60 + min).into()),
         }
     }
 
     // Initialized the vote in all sorts of places
-    async fn on_vote_create(name: String, desc: String, creator: u64, ctx: &Context, ch_id: &ChannelId) -> Result<(), Box<dyn Error>>{
-        let mut v: Vote = Vote::new(name.clone(), desc.clone(), creator);
+    async fn on_vote_create(name: String, desc: String, creator: u64, g_id: u64, ctx: &Context, ch_id: &ChannelId, hrs: u32, min: u32) -> Result<(), Box<dyn Error>>{
+        let mut v: Vote = Vote::new(name.clone(), desc.clone(), creator, hrs, min);
 
+        let auth = ctx.http.get_member(g_id, creator).await.unwrap();
         // sends message
         let me = ch_id.send_message(&ctx.http, |m| {
             m.embed(|e| {
                 e.title(name)
                     .description(desc)
+                    .timestamp(v.end_time)
+                    .author(|a| {
+                        a.name(if let Some(nick) = auth.nick {
+                            nick
+                        } else {
+                            auth.user.name.clone()
+                        })
+                        .icon_url(auth.user.avatar_url().unwrap())
+                    })
             })
         }).await?;
 
         // adds reactions
         me.react(&ctx.http, '👍').await?;
         me.react(&ctx.http, '👎').await?;
+        me.react(&ctx.http, '🤚').await?;
 
         // Update vote data with id of msg
         v.msg_id = me.id.0;
         v.channel_id = ch_id.0;
+        v.guild_id = g_id;
 
         // push vote to cloud list of votes
         v.clsave::<Vote>("votes").await.expect("Cloud sync failed");
@@ -140,6 +171,7 @@ impl Vote {
 
         let mut yes = 0;
         let mut no = 0;
+        let mut abs = 0;
 
         for r in msg.reactions.iter() {
             if r.reaction_type == ReactionType::from('👍') {
@@ -148,41 +180,33 @@ impl Vote {
             if r.reaction_type == ReactionType::from('👎') {
                 no = r.count-1; 
             }
+            if r.reaction_type == ReactionType::from('🤚') {
+                abs = r.count-1;
+            }
         }
 
         let passed = yes > no;
-        /*
-        if let Ok(ch) = http.get_channel(self.channel_id).await {
-            ch.guild().expect("Channel id invalid").send_message(&http, |m| {
-            }).await.expect("it didnt workn");
-        } else {
-            return Err(String::from("it borkn"))
-        }
-        */
 
+        let auth = http.get_member(self.guild_id, self.creator).await.unwrap();
         msg.edit(http, |m| {
                 m.embed(|e| {
                     e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
                         .description(self.description.clone())
                         .color(if passed {0x00ff00} else {0xff0000})
-                        .field("Yes:", format!("{yes}"), false)
-                        .field("No:", format!("{no}"), false)
+                        .field("Yes:", format!("{yes}"), true)
+                        .field("No:", format!("{no}"), true)
+                        .field("Abstain:", format!("{abs}"), true)
+                        .author(|a| {
+                            a.name(if let Some(nick) = auth.nick {
+                                nick
+                            } else {
+                                auth.user.name.clone()
+                            })
+                            .icon_url(auth.user.avatar_url().unwrap())
+                        })
+                        .timestamp(self.end_time)
                 })
         }).await.unwrap();
-        /*
-
-        msg.edit(|m| {
-                m.embed(|e| {
-                    e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
-                        .description(self.description.clone())
-                        .color(if passed {0x00ff00} else {0xff0000})
-                });
-            });
-        */
-
-
-        // update final message
-        
 
         if let Err(_e) = self.clrm::<Vote>("votes").await {
             return Err(String::from("Error syncing with the cloud"));
@@ -197,6 +221,15 @@ impl Vote {
             if votes[i].msg_id == id {
                 votes.remove(i).clrm::<Vote>("votes").await.unwrap();
                 return Ok(());
+            }
+        } 
+        Err(String::from("Vote not found"))
+    }
+
+    fn get_vote_index(id: u64, votes: &Vec<Vote>) -> Result<usize, String> {
+        for i in 0..votes.len() {
+            if votes[i].msg_id == id {
+                return Ok(i);
             }
         } 
         Err(String::from("Vote not found"))

@@ -4,6 +4,6 @@ use serenity::model::prelude::*;
 use serenity::prelude::*;
 
 #[command]
-async fn rename(ctx: &Context, msg: &Message) -> CommandResult {
+async fn rename(_ctx: &Context, _msg: &Message) -> CommandResult {
     unimplemented!();
 }

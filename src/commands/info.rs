@@ -4,6 +4,6 @@ use serenity::model::prelude::*;
 use serenity::prelude::*;
 
 #[command]
-async fn info(ctx: &Context, msg: &Message) -> CommandResult {
+async fn info(_ctx: &Context, _msg: &Message) -> CommandResult {
     unimplemented!();
 }
