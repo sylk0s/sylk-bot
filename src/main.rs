@@ -13,12 +13,12 @@ use serenity::framework::StandardFramework;
 use serenity::http::Http;
 use serenity::model::event::ResumedEvent;
 use serenity::model::gateway::Ready;
-
 use serenity::model::prelude::{Message, UserId};
 use serenity::prelude::*;
 
 use tracing::{error, info};
 use serde::Deserialize;
+use websocket::{ClientBuilder, OwnedMessage};
 
 use crate::commands::ping::*;
 use crate::commands::pin::*;
@@ -57,6 +57,8 @@ impl EventHandler for Handler {
     async fn resume(&self, _: Context, _: ResumedEvent) {
         info!("Resumed");
     }
+
+    // TODO implement on_message for messages in chatbridge -> taurus
 }
 
 #[group]
@@ -65,7 +67,9 @@ struct General;
 
 #[derive(Deserialize)]
 pub struct Config {
-    log_channel: u32,
+    log_channel_id: u64,
+    chatbridge_id: u64,
+    password: String,
 }
 
 #[help]
@@ -90,7 +94,7 @@ async fn my_help(
 #[tokio::main]
 async fn main() {
     let file = fs::read_to_string("./config.toml").unwrap();
-    //let config: Config = toml::from_str(&file).unwrap();
+    let config: Arc<Config> = Arc::new(toml::from_str(&file).unwrap());
 
     // This will load the environment variables located at `./.env`, relative to
     // the CWD. See `./.env.example` for an example on how to structure this.
@@ -157,6 +161,34 @@ async fn main() {
             let mut aaa = data.write().await;
             let votes = aaa.get_mut::<VoteContainer>().unwrap();
             Vote::check_votes_over(votes, &http2).await;
+        }
+    });
+
+    // todo move into a new file
+
+    let ws = ClientBuilder::new("ws://127.0.0.1:7500").unwrap()
+                     .connect_insecure().unwrap();
+
+    let (mut receiver, mut sender) = ws.split().unwrap();
+    let mut message_cache = Vec::<String>::new();
+
+    println!("connecting to taurus...");
+    sender.send_message(&websocket::Message::text(config.password.clone())).unwrap();    
+    println!("authenticating...");
+    sender.send_message(&websocket::Message::text("PING")).unwrap();
+
+    // TODO await pong message
+
+    let http3 = client.cache_and_http.http.clone();
+    tokio::spawn(async move {
+        for message in receiver.incoming_messages() {
+            if let OwnedMessage::Text(msg) = message.unwrap() {
+                if msg[0..3] == *"MSG" {
+                    http3.get_channel(config.chatbridge_id).await.unwrap().id().send_message(&http3, |m| { m.content(&msg[4..]) }).await.expect("Message failed");
+                } else {
+                    message_cache.push(msg);
+                }
+            }
         }
     });
 
