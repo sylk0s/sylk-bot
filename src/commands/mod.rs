@@ -4,3 +4,4 @@ pub mod role;
 pub mod vote;
 pub mod info;
 pub mod rename;
+pub mod mallet;

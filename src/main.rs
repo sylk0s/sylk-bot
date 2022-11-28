@@ -2,7 +2,7 @@ mod commands;
 mod utils;
 use std::collections::HashSet;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc}; 
 use std::fs;
 
 use serenity::async_trait;
@@ -24,6 +24,7 @@ use crate::commands::ping::*;
 use crate::commands::pin::*;
 use crate::commands::role::*;
 use crate::commands::vote::*;
+use crate::commands::mallet::*;
 use crate::commands::vote::Vote;
 
 pub struct ShardManagerContainer;
@@ -35,6 +36,14 @@ pub struct VoteContainer;
 impl TypeMapKey for VoteContainer {
     type Value = Vec<Vote>;
 }
+
+pub struct WSCache;
+/*
+impl TypeMapKey for WSCache {
+    // fix this issue with strings not wanting to send between threads
+    type Value = mpsc::Receiver<String>;
+}
+*/
 
 /*
 pub struct ConfigContainer;
@@ -62,7 +71,7 @@ impl EventHandler for Handler {
 }
 
 #[group]
-#[commands(ping, pin, role)]
+#[commands(ping, pin, role, mallet)]
 struct General;
 
 #[derive(Deserialize)]
@@ -139,18 +148,6 @@ async fn main() {
 
     // 
 
-    {
-        let mut data = client.data.write().await;
-        data.insert::<ShardManagerContainer>(client.shard_manager.clone());
-        data.insert::<VoteContainer>(vec![]);
-    }
-
-    let shard_manager = client.shard_manager.clone();
-
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.expect("Could not register ctrl+c handler");
-        shard_manager.lock().await.shutdown_all().await;
-    });
 
     // spawn checker thread
     let data = client.data.clone();
@@ -165,31 +162,50 @@ async fn main() {
     });
 
     // todo move into a new file
-
+/*
     let ws = ClientBuilder::new("ws://127.0.0.1:7500").unwrap()
                      .connect_insecure().unwrap();
 
     let (mut receiver, mut sender) = ws.split().unwrap();
-    let mut message_cache = Vec::<String>::new();
+    let (mut s_cache, mut r_cache) = mpsc::channel();
 
     println!("connecting to taurus...");
     sender.send_message(&websocket::Message::text(config.password.clone())).unwrap();    
     println!("authenticating...");
     sender.send_message(&websocket::Message::text("PING")).unwrap();
 
-    // TODO await pong message
-
     let http3 = client.cache_and_http.http.clone();
     tokio::spawn(async move {
         for message in receiver.incoming_messages() {
             if let OwnedMessage::Text(msg) = message.unwrap() {
-                if msg[0..3] == *"MSG" {
+                match &msg[0..3] {
+                    "MSG" => {
                     http3.get_channel(config.chatbridge_id).await.unwrap().id().send_message(&http3, |m| { m.content(&msg[4..]) }).await.expect("Message failed");
-                } else {
-                    message_cache.push(msg);
+                    },
+                    _ => {
+                        s_cache.send(msg);
+                        println!("Unknown WS message");
+                    }
                 }
             }
         }
+    });
+
+    // "await" or fail function from bot
+    r_cache.recv();
+*/
+    {
+        let mut data = client.data.write().await;
+        data.insert::<ShardManagerContainer>(client.shard_manager.clone());
+        data.insert::<VoteContainer>(vec![]);
+        //data.insert::<WSCache>(r_cache);
+    }
+
+    let shard_manager = client.shard_manager.clone();
+
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.expect("Could not register ctrl+c handler");
+        shard_manager.lock().await.shutdown_all().await;
     });
 
     if let Err(why) = client.start().await {
