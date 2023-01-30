@@ -1,104 +1,16 @@
-mod commands;
-mod utils;
 use std::collections::HashSet;
 use std::env;
-use std::sync::{Arc, mpsc}; 
 use std::fs;
+use std::sync::Arc;
 
-use serenity::async_trait;
-use serenity::client::bridge::gateway::ShardManager;
-use serenity::framework::standard::macros::{group, help};
-use serenity::framework::standard::{CommandResult, CommandGroup, HelpOptions, Args, help_commands};
-use serenity::framework::StandardFramework;
+use serenity::framework::StandardFramework; 
 use serenity::http::Http;
-use serenity::model::event::ResumedEvent;
-use serenity::model::gateway::Ready;
-use serenity::model::prelude::{Message, UserId};
 use serenity::prelude::*;
 
-use tracing::{error, info};
-use serde::Deserialize;
-use websocket::{ClientBuilder, OwnedMessage};
+use tracing::error;
 
-use crate::commands::ping::*;
-use crate::commands::pin::*;
-use crate::commands::role::*;
-use crate::commands::vote::*;
-use crate::commands::mallet::*;
-use crate::commands::vote::Vote;
-
-pub struct ShardManagerContainer;
-impl TypeMapKey for ShardManagerContainer {
-    type Value = Arc<Mutex<ShardManager>>;
-}
-
-pub struct VoteContainer;
-impl TypeMapKey for VoteContainer {
-    type Value = Vec<Vote>;
-}
-
-pub struct WSCache;
-/*
-impl TypeMapKey for WSCache {
-    // fix this issue with strings not wanting to send between threads
-    type Value = mpsc::Receiver<String>;
-}
-*/
-
-/*
-pub struct ConfigContainer;
-impl TypeMapKey for ConfigContainer {
-    type Value = Config;
-}
-*/
-
-struct Handler;
-
-#[async_trait]
-impl EventHandler for Handler {
-    async fn ready(&self, ctx: Context, ready: Ready) {
-        println!("Connected as {}", ready.user.name);
-
-        Vote::reload(&ctx).await.expect("Failed to reload the votes");
-        println!("Reloaded all cloud votes");
-    }
-
-    async fn resume(&self, _: Context, _: ResumedEvent) {
-        info!("Resumed");
-    }
-
-    // TODO implement on_message for messages in chatbridge -> taurus
-}
-
-#[group]
-#[commands(ping, pin, role, mallet)]
-struct General;
-
-#[derive(Deserialize)]
-pub struct Config {
-    log_channel_id: u64,
-    chatbridge_id: u64,
-    password: String,
-}
-
-#[help]
-#[individual_command_tip = "aaabbb"]
-#[command_not_found_text = "Could not find: `{}`."]
-#[indention_prefix = "+"]
-#[lacking_permissions = "Hide"]
-#[lacking_role = "Nothing"]
-#[wrong_channel = "Strike"]
-async fn my_help(
-    context: &Context,
-    msg: &Message,
-    args: Args,
-    help_options: &'static HelpOptions,
-    groups: &[&'static CommandGroup],
-    owners: HashSet<UserId>,
-) -> CommandResult {
-    let _ = help_commands::with_embeds(context, msg, args, help_options, groups, owners).await;
-    Ok(())
-}
+use sylk_bot::commands::vote::*;
+use sylk_bot::*;
 
 #[tokio::main]
 async fn main() {
@@ -142,17 +54,15 @@ async fn main() {
         | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(&token, intents)
         .framework(framework)
-        .event_handler(Handler)
+        .event_handler(sylk_bot::Handler)
         .await
         .expect("Err creating client");
-
-    // 
-
 
     // spawn checker thread
     let data = client.data.clone();
     let http2 = client.cache_and_http.http.clone();
 
+    // thread for checking votes incrementally
     tokio::spawn(async move { 
         for _ in eventual::Timer::new().interval_ms(1000).iter() { 
             let mut aaa = data.write().await;
@@ -161,39 +71,13 @@ async fn main() {
         }
     });
 
-    // todo move into a new file
-/*
-    let ws = ClientBuilder::new("ws://127.0.0.1:7500").unwrap()
-                     .connect_insecure().unwrap();
+    let mc = match config.backend.as_str() {
+        "mc-docker" => Some(()),
+        "taurus" => Some(()),
+        _ => None,
+    };
 
-    let (mut receiver, mut sender) = ws.split().unwrap();
-    let (mut s_cache, mut r_cache) = mpsc::channel();
-
-    println!("connecting to taurus...");
-    sender.send_message(&websocket::Message::text(config.password.clone())).unwrap();    
-    println!("authenticating...");
-    sender.send_message(&websocket::Message::text("PING")).unwrap();
-
-    let http3 = client.cache_and_http.http.clone();
-    tokio::spawn(async move {
-        for message in receiver.incoming_messages() {
-            if let OwnedMessage::Text(msg) = message.unwrap() {
-                match &msg[0..3] {
-                    "MSG" => {
-                    http3.get_channel(config.chatbridge_id).await.unwrap().id().send_message(&http3, |m| { m.content(&msg[4..]) }).await.expect("Message failed");
-                    },
-                    _ => {
-                        s_cache.send(msg);
-                        println!("Unknown WS message");
-                    }
-                }
-            }
-        }
-    });
-
-    // "await" or fail function from bot
-    r_cache.recv();
-*/
+    // writes to the client's data
     {
         let mut data = client.data.write().await;
         data.insert::<ShardManagerContainer>(client.shard_manager.clone());
