@@ -6,6 +6,7 @@ use futures::StreamExt;
 use crate::utils::error::ConnectionError;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
+use serenity::http::Http;
 
 struct Taurus;
 
@@ -66,8 +67,7 @@ struct Servers {
 #[derive(Debug, Deserialize, Clone)]
 struct Server {
     name: String,
-    send_to: Vec<String>,
-    channel: u16
+    channel: u64
 }
 
 pub struct Mcd {
@@ -93,7 +93,7 @@ impl Mcd {
             return Err(ConnectionError::from("Failed to parse servers.json file"))
         };
 
-        let mut servers = Arc::new(Mutex::new(HashMap::new()));
+        let servers = Arc::new(Mutex::new(HashMap::new()));
         for server in svs.servers.iter() {
             servers.lock().unwrap().insert(server.name.clone(), Arc::new(Mutex::new(server.clone())));
         }
@@ -101,24 +101,21 @@ impl Mcd {
         Ok(Mcd{ servers, config })
     }
 
-    pub fn init(&self, config: Config) {
-
+    pub fn init(&self, _config: Config, http: Arc<Http>) {
         let path = format!("http://localhost:{}", self.config.ws_port);
-        
         for s in self.servers.lock().unwrap().values() {
             let server = s.lock().unwrap().clone();
             let p = path.clone();
+            let http2 = http.clone();
             tokio::spawn(async move {
-                println!("Server at: {p}");
+                println!("Streaming output from server@{p}");
                 let mut stream = reqwest::get(format!("{p}/out/{}", server.name)).await.unwrap().bytes_stream();
                 while let Some(msg) = stream.next().await {
                     let msg = std::str::from_utf8(&msg.unwrap()).unwrap().to_string();
                     println!("{}: {msg}", server.name);
-                    for destination in &server.send_to {
-                        let body = format!(r#"{{"args":["tellraw", "@a", "{{\"text\":\"[{}] {}\"}}"]}}"#, server.name, msg);
-                        reqwest::Client::new().post(format!("{p}/exec/{}", destination)).body(body)
-                            .send().await.expect("Failed to send command to server");
-                    }
+                    // send to discord channel
+                    http2.get_channel(server.channel).await.unwrap().guild().unwrap()
+                        .send_message(&http2, |m| m.content(format!("[{}] {msg}", server.name))).await.unwrap();
                 }
             });
         }
