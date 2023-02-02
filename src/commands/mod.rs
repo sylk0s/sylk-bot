@@ -9,3 +9,4 @@ pub mod mallet;
 pub mod name;
 */
 pub mod general;
+pub mod vote;

@@ -83,33 +83,6 @@ pub async fn echo(
     Ok(())
 }
 
-/// I don't actually know if this works
-#[derive(Debug, poise::ChoiceParameter)]
-pub enum PunishType {
-    Ban,
-    Kick,
-    Mute,
-}
-
-/// Punishment command for testing the rename macro
-#[poise::command(slash_command)]
-pub async fn punish(
-    ctx: Context<'_>,
-    #[description = "Punishment type"]
-    #[rename = "type"]
-    punish_type: PunishType,
-    #[description = "User to execute the punishment on"] user: serenity::User,
-) -> Result<(), Error> {
-    let text = match punish_type {
-        PunishType::Ban => format!("{} has been banned!", user.name),
-        PunishType::Kick => format!("{} has been kicked!", user.name),
-        PunishType::Mute => format!("{} has been muted!", user.name),
-    };
-    ctx.say(text).await?;
-
-    Ok(())
-}
-
 /// lists the servers a bot is in
 #[cfg(feature = "cache")]
 #[poise::command(slash_command, prefix_command)]

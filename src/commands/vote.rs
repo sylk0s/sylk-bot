@@ -1,17 +1,81 @@
-use serenity::framework::standard::macros::{command, group};
-use serenity::framework::standard::{CommandResult, Args};
-use serenity::model::prelude::*;
-use serenity::prelude::*;
-use serenity::http::Http;
-
 use serde::{Serialize, Deserialize};
 use chrono::{prelude::*, Duration};
 use std::cmp::{PartialOrd, Ordering};
-use std::error::Error;
+use std::sync::{Arc, Mutex};
 
-use crate::VoteContainer;
 use crate::utils::cloud::{CloudSync, Unique};
+use crate::{Context, Error, State};
 
+use poise::serenity_prelude as serenity;
+
+/// A command with two subcommands: `child1` and `child2`
+///
+/// Running this function directly, without any subcommand, is only supported in prefix commands.
+/// Discord doesn't permit invoking the root command of a slash command if it has subcommands.
+#[poise::command(prefix_command, slash_command, subcommands("post", "end", "cancel", "list", "debug"))]
+pub async fn vote(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("Please select a subcommand").await?;
+    Ok(())
+}
+
+/// A subcommand of `parent`
+/// Posts a new vote
+#[poise::command(prefix_command, slash_command)]
+pub async fn post(ctx: Context<'_>,
+                  #[description("The name of the vote")] 
+                  name: String,
+                  #[description("A description for the vote")]
+                  description: Option<String>,
+                  #[description("Minutes to add to the vote timer")]    
+                  minutes: u16,
+                  #[description("Hours to add to the vote timer")]
+                  hours: u16
+) -> Result<(), Error> {
+    Vote::on_vote_create(name, description, 
+        ctx.author.id.0,
+        ctx.guild_id.unwrap().0,
+        ctx,
+        ctx.channel_id,
+        hours,
+        minutes,
+        ).await.expect("Vote creation failed");
+    ctx.send("Vote created").await?; // add epethmeral response
+    Ok(())
+}
+
+/// Another subcommand of `parent`
+/// Forces the end of a vote
+#[poise::command(prefix_command, slash_command)]
+pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("You invoked the second child command!").await?;
+    Ok(())
+}
+
+/// A subcommand of `parent`
+/// Quietly ends a vote
+#[poise::command(prefix_command, slash_command)]
+pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("You invoked the first child command!").await?;
+    Ok(())
+}
+
+/// A subcommand of `parent`
+/// Lists the current votes
+#[poise::command(prefix_command, slash_command)]
+pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("You invoked the first child command!").await?;
+    Ok(())
+}
+
+/// A subcommand of `parent`
+/// For testing; gets the debug information about votes
+#[poise::command(prefix_command, slash_command)]
+pub async fn debug(ctx: Context<'_>) -> Result<(), Error> {
+    ctx.say("You invoked the first child command!").await?;
+    Ok(())
+}
+
+/*
 #[group]
 #[prefixes("vote", "v")]
 #[default_command(list)]
@@ -96,42 +160,60 @@ async fn debug(ctx: &Context, msg: &Message) -> CommandResult {
     m.react(&ctx.http, '👀').await?;
     Ok(())
 }
+*/
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Vote {
     name:String,
-    description:String,
+    desc:String,
     msg_id:u64,
-    channel_id:u64,
+    ch_id:u64,
     guild_id:u64,
     creator:u64,
     end_time:DateTime<Utc>,
 }
 
 impl Vote {
-    pub fn new(name:String, description:String, creator:u64, hrs: u32, min: u32) -> Vote {
+    pub fn new(name: String, desc: String, msg_id: u64, ch_id: u64, guild_id: u64, creator: u64, end_time: DateTime<Utc>) -> Self {
         Vote {
             name,
-            description,
-            msg_id: 0,
-            channel_id: 0,
-            guild_id: 0,
+            desc,
+            msg_id,
+            ch_id,
+            guild_id,
             creator,
-            end_time: Utc::now() + Duration::minutes((hrs*60 + min).into()),
+            end_time
         }
     }
 
+    // rewrite this crap to be better
     // Initialized the vote in all sorts of places
-    async fn on_vote_create(name: String, desc: String, creator: u64, g_id: u64, ctx: &Context, ch_id: &ChannelId, hrs: u32, min: u32) -> Result<(), Box<dyn Error>>{
-        let mut v: Vote = Vote::new(name.clone(), desc.clone(), creator, hrs, min);
+    async fn on_vote_create<H>(
+        http: H, 
+        state: State,
+        name: String, 
+        desc: String, 
+        creator: u64, 
+        guild_id: u64, 
+        ch_id: u64, 
+        hrs: u32,
+        min: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> where H: serenity::http::CacheHttp {
 
-        let auth = ctx.http.get_member(g_id, creator).await.unwrap();
+        let end_time = Utc::now() + Duration::minutes((hrs*60 + min).into());
+
+        // Gets the author member to access their nickname and image
+        let auth = http.http().get_member(guild_id, creator).await.unwrap();
+        
+        // gets the channel to send the message
+        let channel = http.http().get_channel(ch_id).await.unwrap();    
+
         // sends message
-        let me = ch_id.send_message(&ctx.http, |m| {
+        let me = channel.id().send_message(&http.http(), |m| {
             m.embed(|e| {
                 e.title(name)
                     .description(desc)
-                    .timestamp(v.end_time)
+                    .timestamp(end_time)
                     .author(|a| {
                         a.name(if let Some(nick) = auth.nick {
                             nick
@@ -144,20 +226,18 @@ impl Vote {
         }).await?;
 
         // adds reactions
-        me.react(&ctx.http, '👍').await?;
-        me.react(&ctx.http, '👎').await?;
-        me.react(&ctx.http, '🤚').await?;
+        me.react(&http, '👍').await?;
+        me.react(&http, '👎').await?;
+        me.react(&http, '🤚').await?;
 
-        // Update vote data with id of msg
-        v.msg_id = me.id.0;
-        v.channel_id = ch_id.0;
-        v.guild_id = g_id;
+        // Creates the new Vote object
+        let mut v: Vote = Vote::new(name.clone(), desc.clone(), creator, me.id.0, ch_id, guild_id, end_time);
 
         // push vote to cloud list of votes
         v.clsave::<Vote>("votes").await.expect("Cloud sync failed");
 
         // push vote to internal list of votes
-        let mut data = ctx.data.write().await;
+        let mut data = state.write().await;
         let votes = data.get_mut::<VoteContainer>().unwrap();
         votes.push(v);
 
@@ -165,33 +245,33 @@ impl Vote {
     }
 
     // Cleans up a vote, publishes the results
-    async fn on_vote_end(&self, http: &Http) -> Result<(), String> {
+    async fn on_vote_end<H>(&self, http: H) -> Result<(), String> where H: serenity::CacheHttp {
         // determine winner
-        let mut msg = http.get_message(self.channel_id,self.msg_id).await.unwrap(); 
+        let mut msg = http.http().get_message(self.ch_id,self.msg_id).await.unwrap(); 
 
         let mut yes = 0;
         let mut no = 0;
         let mut abs = 0;
 
         for r in msg.reactions.iter() {
-            if r.reaction_type == ReactionType::from('👍') {
+            if r.reaction_type == serenity::ReactionType::from('👍') {
                 yes = r.count-1;
             }
-            if r.reaction_type == ReactionType::from('👎') {
+            if r.reaction_type == serenity::ReactionType::from('👎') {
                 no = r.count-1; 
             }
-            if r.reaction_type == ReactionType::from('🤚') {
+            if r.reaction_type == serenity::ReactionType::from('🤚') {
                 abs = r.count-1;
             }
         }
 
         let passed = yes > no;
 
-        let auth = http.get_member(self.guild_id, self.creator).await.unwrap();
+        let auth = http.http().get_member(self.guild_id, self.creator).await.unwrap();
         msg.edit(http, |m| {
                 m.embed(|e| {
                     e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
-                        .description(self.description.clone())
+                        .description(self.desc.clone())
                         .color(if passed {0x00ff00} else {0xff0000})
                         .field("Yes:", format!("{yes}"), true)
                         .field("No:", format!("{no}"), true)
@@ -214,8 +294,9 @@ impl Vote {
         Ok(())
     }
 
-    async fn remove_vote(id: u64, ctx: &Context) -> Result<(), String> {
-        let mut data = ctx.data.write().await;
+    async fn remove_vote<H>(id: u64, http: H, state: State) -> Result<(), String> where H: serenity::CacheHttp {
+        // HELP
+        let mut data = state.write().await;
         let votes = data.get_mut::<VoteContainer>().unwrap();
         for i in 0..votes.len() {
             if votes[i].msg_id == id {
@@ -236,10 +317,10 @@ impl Vote {
     }
 
     // implement proper time comparison
-    pub async fn reload(ctx: &Context) -> Result<(), Box<dyn Error>> {
+    pub async fn reload<H>(http: H, state: State) -> Result<(), Box<dyn std::error::Error>> where H: serenity::CacheHttp + Copy {
         // Get both sources of votes
         let mut t: Vec<Vote> = Self::clget().await.unwrap();
-        let mut data = ctx.data.write().await;
+        let mut data = state.write().await;
         let votes = data.get_mut::<VoteContainer>().unwrap();
 
         // original things weren't actually breaking ;)
@@ -247,11 +328,11 @@ impl Vote {
             votes.push(t.remove(0));
         }
        
-        Self::check_votes_over(votes, &ctx.http.clone()).await;
+        Self::check_votes_over(votes, http).await;
         Ok(())
     }
     
-    pub async fn check_votes_over(votes: &mut Vec<Vote>, http: &Http) {
+    pub async fn check_votes_over<H>(votes: &mut Vec<Vote>, http: H) where H: serenity::CacheHttp + Copy {
         let mut to_remove = Vec::new();
         // mark for deletion (god i hate this)
         for i in 0..votes.len() {

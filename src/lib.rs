@@ -1,13 +1,17 @@
 pub mod commands;
+pub mod utils;
+
+use crate::commands::vote::Vote;
 
 use poise::serenity_prelude as serenity;
-use std::{collections::HashMap, env::var, sync::Mutex, time::Duration};
+use std::{collections::HashMap, sync::{Mutex, Arc}};
 
 // Types used by all command functions
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
-pub type Context<'a> = poise::Context<'a, Data, Error>;
+pub type Context<'a> = poise::Context<'a, State, Error>;
+pub type State = Arc<Mutex<Data>>;
 
 // Custom user data passed to all command functions
 pub struct Data {
-    pub votes: Mutex<HashMap<String, u32>>,
+    pub votes: Mutex<HashMap<u64, Vote>>,
 }
