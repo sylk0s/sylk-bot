@@ -14,6 +14,7 @@ use sylk_bot::*;
 
 #[tokio::main]
 async fn main() {
+    // read in bot wide config file
     let file = fs::read_to_string("./config.toml").unwrap();
     let config: Arc<Config> = Arc::new(toml::from_str(&file).unwrap());
 
@@ -27,11 +28,12 @@ async fn main() {
     // `RUST_LOG` to `debug`.
     tracing_subscriber::fmt::init();
 
+    // TOKEN from environment
     let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
 
     let http = Http::new(&token);
 
-    // We will fetch your bot's owners and id
+    // get the bot's owner and ID
     let (owners, _bot_id) = match http.get_current_application_info().await {
         Ok(info) => {
             let mut owners = HashSet::new();
@@ -49,16 +51,19 @@ async fn main() {
             .group(&VOTING_GROUP)
             .help(&MY_HELP);
 
+    // gateway intents
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
+
+    // make the client for the bot
     let mut client = Client::builder(&token, intents)
         .framework(framework)
         .event_handler(sylk_bot::Handler)
         .await
         .expect("Err creating client");
 
-    // spawn checker thread
+    // cloned data for the checker thread
     let data = client.data.clone();
     let http2 = client.cache_and_http.http.clone();
 
@@ -71,6 +76,7 @@ async fn main() {
         }
     });
 
+    // get the minecraft backend from the config file
     let mc = match config.backend.as_str() {
         "mc-docker" => Some(()),
         "taurus" => Some(()),
