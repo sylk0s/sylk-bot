@@ -61,7 +61,6 @@ async fn main() {
             general::boop(),
             general::voiceinfo(),
             general::echo(),
-            general::punish(),
             #[cfg(feature = "cache")]
             general::servers(),
             general::reply(),

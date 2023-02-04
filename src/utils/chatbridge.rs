@@ -1,4 +1,3 @@
-use crate::Config;
 use serde::Deserialize;
 use std::fs;
 use std::collections::HashMap;
@@ -6,7 +5,6 @@ use futures::StreamExt;
 use crate::utils::error::ConnectionError;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
-use serenity::http::Http;
 
 struct Taurus;
 
@@ -101,6 +99,7 @@ impl Mcd {
         Ok(Mcd{ servers, config })
     }
 
+    /*
     pub fn init(&self, _config: Config, http: Arc<Http>) {
         let path = format!("http://localhost:{}", self.config.ws_port);
         for s in self.servers.lock().unwrap().values() {
@@ -120,6 +119,7 @@ impl Mcd {
             });
         }
     }
+    */
 }
 
 #[async_trait]
