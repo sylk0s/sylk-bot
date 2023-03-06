@@ -27,18 +27,19 @@ pub async fn post(ctx: Context<'_>,
                   #[description = "A description for the vote"]
                   description: Option<String>,
                   #[description = "Minutes to add to the vote timer"]    
-                  minutes: u32,
+                  minutes: u16,
                   #[description = "Hours to add to the vote timer"]
-                  hours: u32
+                  hours: u16
 ) -> Result<(), Error> {
-    Vote::on_vote_create(ctx, name, description.unwrap(), // fix this for no description option 
-        ctx.author().id.0,
-        ctx.guild_id().unwrap().0,
-        ctx.channel_id().0,
+    Vote::on_vote_create(name, description, 
+        ctx.author.id().0,
+        ctx.guild_id.unwrap().0,
+        ctx,
+        ctx.channel_id,
         hours,
         minutes,
         ).await.expect("Vote creation failed");
-    ctx.say("Vote created").await?; // add epethmeral response
+    ctx.send("Vote created").await?; // add epethmeral response
     Ok(())
 }
 
@@ -188,6 +189,7 @@ impl Vote {
     // Initialized the vote in all sorts of places
     async fn on_vote_create<H>(
         http: H, 
+        //state: State,
         name: String, 
         desc: String, 
         creator: u64, 

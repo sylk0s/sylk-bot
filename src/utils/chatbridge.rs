@@ -123,7 +123,7 @@ impl Mcd {
 }
 
 #[async_trait]
-impl IMc for Mcd {
+impl MCInterface for Mcd {
     async fn send(&self, s: String, msg: String) {
         let server = self.servers.lock().unwrap().get(&s).unwrap().lock().unwrap().clone(); 
         let mut cmd = Vec::new();
@@ -150,7 +150,7 @@ impl IMc for Mcd {
 
 // An interface to interact with Minecraft  server management systems
 #[async_trait]
-trait IMc {
+trait MCInterface {
     // send a message to a server
     async fn send(&self, s: String, msg: String);
     // execute a command on a server
