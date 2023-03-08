@@ -1,11 +1,10 @@
 use serde::{Serialize, Deserialize};
 use chrono::{prelude::*, Duration};
 use std::cmp::{PartialOrd, Ordering};
-use futures::stream::StreamExt;
 use std::collections::HashMap;
 
 use crate::utils::cloud::{CloudSync, Unique};
-use crate::{Context, Error, State};
+use crate::{Context, Error};
 
 use poise::serenity_prelude as serenity;
 
@@ -15,15 +14,15 @@ use poise::serenity_prelude as serenity;
 /// Discord doesn't permit invoking the root command of a slash command if it has subcommands.
 
 // AAA this is throwing really annoying errors in vs code with rust-analyzer
-#[poise::command(prefix_command, slash_command, subcommands("post", "end", "cancel", "list", "debug"))]
-pub async fn vote(ctx: Context<'_>) -> Result<(), Error> {
+#[poise::command(slash_command, subcommands("post", "end", "cancel", "list", "debug"))]
+pub async fn vote(_ctx: Context<'_>) -> Result<(), Error> {
     // THIS WILL NEVER BE CALLED EVER!!!
     Ok(())
 }
 
 /// A subcommand of `parent`
 /// Posts a new vote
-#[poise::command(prefix_command, slash_command)]
+#[poise::command(slash_command)]
 pub async fn post(ctx: Context<'_>,
     #[description = "The name of the vote"]
     name: String,
@@ -55,7 +54,7 @@ pub async fn post(ctx: Context<'_>,
     Ok(())
 }       
 
-#[poise::command(prefix_command, slash_command)]
+#[poise::command(slash_command)]
 pub async fn end(ctx: Context<'_>,
     #[description = "The UUID of the vote"]
     uuid: u128,
@@ -72,9 +71,9 @@ pub async fn end(ctx: Context<'_>,
     Ok(())
 }
 
-/// A subcommand of `parentu,hjc vb8ucv 2 eik,`
+/// A subcommand of vote
 /// Quietly ends a vote
-#[poise::command(prefix_command, slash_command)]
+#[poise::command(slash_command)]
 pub async fn cancel(ctx: Context<'_>,
     #[description = "The UUID of the vote"]
     // Stupid weird bug here
@@ -103,10 +102,10 @@ pub async fn cancel(ctx: Context<'_>,
 
 /// A subcommand of `parent`
 /// Lists the current votes
-#[poise::command(prefix_command, slash_command)]
+#[poise::command(slash_command)]
 pub async fn list(ctx: Context<'_>) -> Result<(), Error> {    
     let data = ctx.data().write().await;
-    let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).fold(String::new(), |a, b| { format!("{}\n{}", a, b) });
     ctx.send(|m| {
         m.embed(|e| {
             e.title("List of votes:")
@@ -118,13 +117,13 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 
 /// A subcommand of `parent`
 /// For testing; gets the debug information about votes
-#[poise::command(prefix_command, slash_command)]
+#[poise::command(slash_command)]
 pub async fn debug(ctx: Context<'_>) -> Result<(), Error> {
     let data = ctx.data().write().await;
     // maps local votes into a string
-    let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).fold(String::new(), |a, b| { format!("{}\n{}", a, b) });
     // maps external votes into a string
-    let votelistcl = Vote::clget().await?.iter().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    let votelistcl = Vote::clget().await?.iter().map(|v| v.name.clone()).fold(String::new(), |a, b| { format!("{}\n{}", a, b) });
     
     ctx.send(|m| {
         m.embed(|e| {

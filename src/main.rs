@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use dotenv;
 
 /// Show this help menu
-#[poise::command(prefix_command, track_edits, slash_command)]
+#[poise::command(track_edits, slash_command)]
 async fn help(
     ctx: Context<'_>,
     #[description = "Specific command to show help about"]
@@ -133,15 +133,27 @@ async fn main() {
         ..Default::default()
     };
 
+    let token = var("DISCORD_TOKEN").expect("Missing `DISCORD_TOKEN` env var, see README for more information.");
+    let state = Arc::new(RwLock::new( Data { 
+        votes: Vote::reload(&serenity::Http::new(&token)).await.expect("Loading votes failed :(") 
+    }));
+
+    let state2 = Arc::clone(&state);
+    let http = serenity::Http::new(&token);
+    // thread for checking votes incrementally
+    tokio::spawn(async move { 
+        for _ in eventual::Timer::new().interval_ms(10000).iter() {
+            let votes = state2.read().await.votes.clone();
+            state2.write().await.votes = Vote::end_finished_votes(votes, &http).await;
+        }
+    });
+
     poise::Framework::builder()
-        .token(
-            var("DISCORD_TOKEN")
-                .expect("Missing `DISCORD_TOKEN` env var, see README for more information."),
-        )
-        .setup(move |ctx, _ready, _framework| {
+        .token(&token)
+        .setup(move |_ctx, _ready, _framework| {
             // Initialize the data held globally by the bot.
             Box::pin(async move {
-                Ok(Arc::new(RwLock::new( Data { votes: Vote::reload(ctx).await.expect("Loading votes failed :(") } )))
+                Ok(state)
             })
         })
         .options(options)
