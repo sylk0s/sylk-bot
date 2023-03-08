@@ -17,5 +17,5 @@ pub type State = Arc<RwLock<Data>>;
 
 // Custom user data passed to all command functions
 pub struct Data {
-    pub votes: Vec<Vote>,
+    pub votes: HashMap<u64, Vote>,
 }

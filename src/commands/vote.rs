@@ -2,6 +2,7 @@ use serde::{Serialize, Deserialize};
 use chrono::{prelude::*, Duration};
 use std::cmp::{PartialOrd, Ordering};
 use futures::stream::StreamExt;
+use std::collections::HashMap;
 
 use crate::utils::cloud::{CloudSync, Unique};
 use crate::{Context, Error, State};
@@ -12,9 +13,11 @@ use poise::serenity_prelude as serenity;
 ///
 /// Running this function directly, without any subcommand, is only supported in prefix commands.
 /// Discord doesn't permit invoking the root command of a slash command if it has subcommands.
+
+// AAA this is throwing really annoying errors in vs code with rust-analyzer
 #[poise::command(prefix_command, slash_command, subcommands("post", "end", "cancel", "list", "debug"))]
 pub async fn vote(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("Please select a subcommand").await?;
+    // THIS WILL NEVER BE CALLED EVER!!!
     Ok(())
 }
 
@@ -22,121 +25,89 @@ pub async fn vote(ctx: Context<'_>) -> Result<(), Error> {
 /// Posts a new vote
 #[poise::command(prefix_command, slash_command)]
 pub async fn post(ctx: Context<'_>,
-                  #[description = "The name of the vote"]
-                  name: String,
-                  #[description = "A description for the vote"]
-                  description: Option<String>,
-                  #[description = "Minutes to add to the vote timer"]    
-                  minutes: u16,
-                  #[description = "Hours to add to the vote timer"]
-                  hours: u16
+    #[description = "The name of the vote"]
+    name: String,
+    #[description = "A description for the vote"]
+    description: Option<String>,
+    #[description = "Minutes to add to the vote timer"]    
+    minutes: u32,
+    #[description = "Hours to add to the vote timer"]
+    hours: u32
 ) -> Result<(), Error> {
-    Vote::on_vote_create(name, description, 
-        ctx.author.id().0,
-        ctx.guild_id.unwrap().0,
-        ctx,
-        ctx.channel_id,
-        hours,
-        minutes,
-        ).await.expect("Vote creation failed");
-    ctx.send("Vote created").await?; // add epethmeral response
+    let votes = &mut ctx.data().write().await.votes;
+    let status;
+    if let Ok(new_vote) = Vote::on_vote_create(
+            ctx,
+            name, 
+            if let Some(desc) = description { desc } else { String::new() }, 
+            ctx.author().id.0,
+            ctx.guild_id().unwrap().0,
+            ctx.channel_id().into(),
+            hours,
+            minutes,
+        ).await {
+            (*votes).insert(new_vote.uuid(), new_vote);  
+            status = "Vote Created";
+        } else {
+            status = "Error creating a new vote";
+        };
+        ctx.send(|m| m.content(format!("{status}")).ephemeral(true)).await?; 
     Ok(())
-}
+}       
 
-/// Another subcommand of `parent`
-/// Forces the end of a vote
 #[poise::command(prefix_command, slash_command)]
-pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("You invoked the second child command!").await?;
+pub async fn end(ctx: Context<'_>,
+    #[description = "The UUID of the vote"]
+    uuid: u128,
+) -> Result<(), Error> {
+    let votes = &mut ctx.data().write().await.votes;
+    if let Some(vote) = votes.get(&(uuid as u64)) {
+        vote.on_vote_end(ctx).await.unwrap();
+        votes.remove(&(uuid as u64));
+        ctx.send(|m| m.content(format!("Vote successfully ended")).ephemeral(true)).await?;
+    } else {
+        ctx.send(|m| m.content(format!("Invalid Vote ID")).ephemeral(true)).await?;
+    }
+    
     Ok(())
 }
 
 /// A subcommand of `parentu,hjc vb8ucv 2 eik,`
 /// Quietly ends a vote
 #[poise::command(prefix_command, slash_command)]
-pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("You invoked the first child command!").await?;
+pub async fn cancel(ctx: Context<'_>,
+    #[description = "The UUID of the vote"]
+    // Stupid weird bug here
+    // TODO explore this more later
+    uuid: u128,
+) -> Result<(), Error> {
+    let votes = &mut ctx.data().write().await.votes;
+    if let Some(vote) = votes.get(&(uuid as u64)) {
+
+        let msg = ctx.serenity_context().http.get_message(vote.ch_id,vote.msg_id).await.unwrap(); 
+        msg.delete(ctx).await?;
+
+        vote.clrm().await.unwrap();
+
+        votes.remove(&(uuid as u64));
+        
+        ctx.send(|m| m.content(format!("Vote successfully canceled")).ephemeral(true)).await?;
+    } else {
+        ctx.send(|m| m.content(format!("Invalid Vote ID")).ephemeral(true)).await?;
+    }
     Ok(())
 }
+
+//TODO error with unwrap on null values
+// stop writing STUPID CODE
 
 /// A subcommand of `parent`
 /// Lists the current votes
 #[poise::command(prefix_command, slash_command)]
-pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("You invoked the first child command!").await?;
-    Ok(())
-}
-
-/// A subcommand of `parent`
-/// For testing; gets the debug information about votes
-#[poise::command(prefix_command, slash_command)]
-pub async fn debug(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("You invoked the first child command!").await?;
-    Ok(())
-}
-
-/*
-#[group]
-#[prefixes("vote", "v")]
-#[default_command(list)]
-#[commands(post, cancel, end, list, debug)]
-struct Voting;
-
-// Post a new vote
-#[command]
-async fn post(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-    let ar = args.raw().collect::<Vec<&str>>();
-    Vote::on_vote_create(
-        ar[0].to_string(), 
-        ar[3..].iter().map(|a| a.to_string()).reduce(|a, b| { format!("{} {}",a ,b) }).unwrap(), 
-        msg.author.id.0,
-        msg.guild_id.unwrap().0,
-        ctx,
-        &msg.channel_id,
-        ar[1].parse::<u32>().unwrap(),
-        ar[2].parse::<u32>().unwrap(),
-        ).await.expect("Vote creation failed");
-    Ok(())
-}
-
-// Force the end of a vote with an id
-#[command]
-async fn end(ctx: &Context, msg: &Message) -> CommandResult {
-    let mut data = ctx.data.write().await;
-    let votes = data.get_mut::<VoteContainer>().unwrap();
-    if let Some(r) = &msg.referenced_message {
-        let i = Vote::get_vote_index(r.id.try_into().unwrap(), &votes).unwrap();
-        let v = &votes[i];
-        v.on_vote_end(&ctx.http).await.unwrap();
-        Vote::remove_vote(i.try_into().unwrap(), &ctx).await.unwrap();
-    } else {
-        msg.reply(&ctx.http, "Didn't reply to a message!").await?;
-    };
-    Ok(())
-}
-
-// Quitely end a vote with no result handling
-#[command]
-async fn cancel(ctx: &Context, msg: &Message) -> CommandResult {
-    let mut data = ctx.data.write().await;
-    let votes = data.get_mut::<VoteContainer>().unwrap();
-    if let Some(r) = &msg.referenced_message {
-        let i = Vote::get_vote_index(r.id.try_into().unwrap(), &votes).unwrap();
-        Vote::remove_vote(i.try_into().unwrap(), &ctx).await.unwrap();
-        msg.delete(&ctx.http).await.unwrap();
-    } else {
-        msg.reply(&ctx.http, "Didn't reply to a message!").await?;
-    };
-    Ok(())
-}
-
-// List the current active votes
-#[command]
-async fn list(ctx: &Context, msg: &Message) -> CommandResult {
-    let mut data = ctx.data.write().await;
-    let votes = data.get_mut::<VoteContainer>().unwrap();
-    let votelist = votes.iter().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
-    msg.channel_id.send_message(&ctx.http, |m| {
+pub async fn list(ctx: Context<'_>) -> Result<(), Error> {    
+    let data = ctx.data().write().await;
+    let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    ctx.send(|m| {
         m.embed(|e| {
             e.title("List of votes:")
                 .description(votelist)
@@ -145,22 +116,25 @@ async fn list(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
-async fn debug(ctx: &Context, msg: &Message) -> CommandResult {
-    let cloud_votes = Vote::clget::<Vote>().await?;
-    let mut data = ctx.data.write().await;
-    let bot_votes = data.get_mut::<VoteContainer>().unwrap();
-    let m = msg.channel_id.send_message(&ctx.http, |m| {
+/// A subcommand of `parent`
+/// For testing; gets the debug information about votes
+#[poise::command(prefix_command, slash_command)]
+pub async fn debug(ctx: Context<'_>) -> Result<(), Error> {
+    let data = ctx.data().write().await;
+    // maps local votes into a string
+    let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    // maps external votes into a string
+    let votelistcl = Vote::clget().await?.iter().map(|v| v.name.clone()).reduce(|a, b| { format!("{}\n{}", a, b) }).unwrap();
+    
+    ctx.send(|m| {
         m.embed(|e| {
-            e.title("Voting Debug")
-            .field("Cloud votes", format!("{:?}", cloud_votes), false)
-            .field("Local votes", format!("{:?}", bot_votes), false)
+            e.title("State out")
+                .field("Local:", votelist, false)
+                .field("Cloud:", votelistcl, false)
         })
     }).await?;
-    m.react(&ctx.http, '👀').await?;
     Ok(())
 }
-*/
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Vote {
@@ -209,10 +183,33 @@ impl Vote {
         let channel = http.http().get_channel(ch_id).await.unwrap();    
 
         // sends message
-        let me = channel.id().send_message(&http.http(), |m| {
+        let mut msg = channel.id().send_message(&http.http(), |m| {
             m.embed(|e| {
                 e.title(name.clone())
                     .description(desc.clone())
+                    .timestamp(end_time)
+                    // replaces author's username with nickname if one exists
+                    .author(|a| {
+                        a.name(if let Some(nick) = auth.nick.clone() {
+                            nick
+                        } else {
+                            auth.user.name.clone()
+                        })
+                        .icon_url(auth.user.avatar_url().unwrap())
+                })
+            })
+        }).await?;
+
+        // Creates the new Vote object
+        let v: Vote = Vote::new(name.clone(), desc.clone(), msg.id.0, ch_id, guild_id, creator, end_time);
+
+        // Updates the message with the actual information
+        // So that we can use the msg_id as the UUID for the vote
+        msg.edit(&http, |m| {
+            m.embed(|e| {
+                e.title(name.clone())
+                    .description(desc.clone())
+                    .field("UUID:", format!("{}", v.uuid()), true)
                     .timestamp(end_time)
                     // replaces author's username with nickname if one exists
                     .author(|a| {
@@ -222,20 +219,17 @@ impl Vote {
                             auth.user.name.clone()
                         })
                         .icon_url(auth.user.avatar_url().unwrap())
-                    })
+                })
             })
-        }).await?;
+        }).await.unwrap();
 
         // adds reactions for voting
-        me.react(&http, '👍').await?;
-        me.react(&http, '👎').await?;
-        me.react(&http, '🤚').await?;
-
-        // Creates the new Vote object
-        let v: Vote = Vote::new(name.clone(), desc.clone(), creator, me.id.0, ch_id, guild_id, end_time);
+        msg.react(&http, '👍').await?;
+        msg.react(&http, '👎').await?;
+        msg.react(&http, '🤚').await?;
 
         // push vote to cloud list of votes
-        v.clsave::<Vote>("votes").await.expect("Cloud sync failed");
+        v.clsave("votes").await.expect("Cloud sync failed");
 
         Ok(v)
     }
@@ -269,7 +263,7 @@ impl Vote {
         // Author of the vote
         let auth = http.http().get_member(self.guild_id, self.creator).await.unwrap();
 
-        // changes the message to display result information
+        // changes the message to display result
         msg.edit(http, |m| {
                 m.embed(|e| {
                     e.title(format!("Vote {} : {}", if passed {"passed"} else {"failed"}, self.name))
@@ -292,58 +286,42 @@ impl Vote {
         }).await.unwrap();
 
         // removes vote from the cloud
-        if let Err(_e) = self.clrm::<Vote>("votes").await {
+        if let Err(_e) = self.clrm().await {
             return Err(String::from("Error syncing with the cloud"));
         }
-
-        // make it auto remove the vote >:(
+        
         Ok(())
     }
 
-    // do we want to remove the message here too?
-    // this is a filter map because a filter was throwing weird lifetime errors :\
-    // returns a list of votes without all votes that have id (although it should only be one)
-    async fn remove_vote(id: u64, votes: Vec<Vote>) -> Vec<Vote> {
-        futures::stream::iter(votes.into_iter()).filter_map(|v| async move { 
-            if v.is_vote(id) {
-                v.clrm::<Vote>("votes").await.unwrap();
-                None
-            } else { Some(v) }
-        }).collect().await
-    }
-
-    // checks if a vote has the given id
-    fn is_vote(&self, id: u64) -> bool {
-        self.msg_id == id
-    }
-
     // Returns the votes from the cloud that haven't ended
-    pub async fn reload<H>(http: H) -> Result<Vec<Vote>, Box<dyn std::error::Error>> where H: serenity::CacheHttp + Copy {
-        let t: Vec<Vote> = Self::clget().await.unwrap();
-        Ok(Self::end_finished_votes(t, http).await)
+    pub async fn reload<H>(http: H) -> Result<HashMap<u64, Vote>, Box<dyn std::error::Error>> where H: serenity::CacheHttp + Copy {
+        let vs = if let Ok(votes) = Vote::clhash().await { votes } 
+            else { println!("Error reading votes from the cloud :("); HashMap::new() };
+        Ok(Self::end_finished_votes(vs, http).await)
     }
-    
+
     // returns a list of all the votes that have not ended
     // ends all of the votes that have fainished
-    pub async fn end_finished_votes<H>(votes: Vec<Vote>, http: H) -> Vec<Vote> where H: serenity::CacheHttp + Copy {
-        futures::stream::iter(votes.into_iter()).filter_map(|v| async move {
+    pub async fn end_finished_votes<H>(votes: HashMap<u64, Vote>, http: H) -> HashMap<u64, Vote>  where H: serenity::CacheHttp + Copy {
+        let mut result = HashMap::new();
+        for (id, v) in votes {
             if v.ended() {
                 v.on_vote_end(http.clone()).await.unwrap();
-                None
-            } else {
-                Some(v)
+                continue;
             }
-        }).collect().await
+            result.insert(id, v.clone());
+        }
+        result
     }
 
-    // see of a vote has ended
+    // see if a vote has ended
     fn ended(&self) -> bool {
         Some(Ordering::Less) == self.end_time.partial_cmp(&Utc::now())
     }
 }
 
 impl CloudSync for Vote {
-    fn clname<Vote>() -> &'static str {
+    fn clname() -> &'static str {
         "votes"
     }
 }

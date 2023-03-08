@@ -1,7 +1,9 @@
-use sylk_bot::commands::*;
-use sylk_bot::{Data, Error, Context};
+use sylk_bot::commands::{*, vote::Vote};
+use sylk_bot::{State, Error, Context, Data};
 use poise::serenity_prelude as serenity;
-use std::{collections::HashMap, env::var, sync::Mutex, time::Duration};
+use std::{env::var, sync::Arc, time::Duration};
+use tokio::sync::RwLock;
+use dotenv;
 
 /// Show this help menu
 #[poise::command(prefix_command, track_edits, slash_command)]
@@ -15,7 +17,7 @@ async fn help(
         ctx,
         command.as_deref(),
         poise::builtins::HelpConfiguration {
-            extra_text_at_bottom: "\
+            extra_text_at_bottom: "\n
 This is an example bot made to showcase features of my custom Discord bot framework",
             show_context_menu_commands: true,
             ..Default::default()
@@ -33,7 +35,7 @@ async fn register(ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
+async fn on_error(error: poise::FrameworkError<'_, State, Error>) {
     // This is our custom error handler
     // They are many errors that can occur, so we only handle the ones we want to customize
     // and forward the rest to the default handler
@@ -52,6 +54,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
 
 #[tokio::main]
 async fn main() {
+    dotenv::dotenv().ok();
 //    env_logger::init();
 
     let options = poise::FrameworkOptions {
@@ -59,14 +62,14 @@ async fn main() {
             help(),
             register(),
             general::boop(),
-            general::voiceinfo(),
-            general::echo(),
-            #[cfg(feature = "cache")]
-            general::servers(),
-            general::reply(),
-            general::bonk(),
-            general::pin(),
-            general::name(),
+            //general::voiceinfo(),
+            //general::echo(),
+            //#[cfg(feature = "cache")]
+            //general::servers(),
+            //general::reply(),
+            //general::bonk(),
+            //general::pin(),
+            //general::name(),
             /*
             context_menu::user_info(),
             context_menu::echo(),
@@ -84,6 +87,7 @@ async fn main() {
             subcommands::parent(),
             localization::welcome(),
             */
+            vote::vote(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("~".into()),
@@ -134,12 +138,10 @@ async fn main() {
             var("DISCORD_TOKEN")
                 .expect("Missing `DISCORD_TOKEN` env var, see README for more information."),
         )
-        .setup(move |_ctx, _ready, _framework| {
+        .setup(move |ctx, _ready, _framework| {
             // Initialize the data held globally by the bot.
             Box::pin(async move {
-                Ok(Data {
-                    votes: Mutex::new(HashMap::new()),
-                })
+                Ok(Arc::new(RwLock::new( Data { votes: Vote::reload(ctx).await.expect("Loading votes failed :(") } )))
             })
         })
         .options(options)
