@@ -6,6 +6,30 @@ use crate::utils::error::ConnectionError;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
+// Each bridge represents a single interface between a server and a discord channel
+// To create multiple links, multiple bridge objects are created and started
+struct Bridge<T> where T: MCInterface {
+    interface: T,
+}
+
+impl<T> Bridge<T> where T: MCInterface {
+    // This will read from the servers.json file to create all the neccecary bridges
+    fn init() {
+        unimplemented!();
+    }
+
+    // Creates a new bridge
+    fn new(kind: String, channel: u64, server: String) {
+        unimplemented!();
+    }
+
+    // Starts the bridge
+    // This will start forwarding the stream of message output to the server from the 
+    async fn start() {
+
+    }
+}
+
 struct Taurus;
 
 struct TauConf {
@@ -137,8 +161,8 @@ impl MCInterface for Mcd {
         let server = self.servers.lock().unwrap().get(&s).unwrap().lock().unwrap().clone(); 
         let path = format!("https://localhost:{}", self.config.ws_port);
         let body = format!(r#"{{"args":[{}]}}"#, 
-                           cmd.iter().skip(1).fold(format!(r#""{}""#, cmd.iter().next().unwrap().clone()), 
-                                                   |x, acc| format!(r#"{},"{}""#,acc, x)));
+            cmd.iter().skip(1).fold(format!(r#""{}""#, cmd.iter().next().unwrap().clone()), 
+                    |x, acc| format!(r#"{},"{}""#,acc, x)));
         reqwest::Client::new().post(format!("{path}/exec/{}", server.name)).body(body)
             .send().await.expect("Failed to send command to server");
     }
@@ -153,8 +177,26 @@ impl MCInterface for Mcd {
 trait MCInterface {
     // send a message to a server
     async fn send(&self, s: String, msg: String);
+
     // execute a command on a server
     async fn execute(&self, s: String, cmd: Vec<String>);
+
     // get the status of a server
     async fn status(&self, s: String) -> String; 
+
+    // Stream output
+
+    /*
+        let mut stream = reqwest::get(format!("{ADDR}/{}/{}", self.name, self.id)).await.unwrap().bytes_stream();
+
+        while let Some(msg) = stream.next().await {
+            println!("{:?}", msg);
+        }
+     */
+
+    // Start
+
+    // Stop
+
+
 }
