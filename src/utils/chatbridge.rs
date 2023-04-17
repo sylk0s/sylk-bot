@@ -13,18 +13,13 @@ struct Bridge<T> where T: MCInterface {
 }
 
 impl<T> Bridge<T> where T: MCInterface {
-    // This will read from the servers.json file to create all the neccecary bridges
-    fn init() {
-        unimplemented!();
-    }
-
     // Creates a new bridge
     fn new(kind: String, channel: u64, server: String) {
         unimplemented!();
     }
 
     // Starts the bridge
-    // This will start forwarding the stream of message output to the server from the 
+    // This will start both directions of message forwarding
     async fn start() {
 
     }
@@ -93,31 +88,41 @@ struct Server {
 }
 
 pub struct Mcd {
-    servers: Arc<Mutex<HashMap<String, Arc<Mutex<Server>>>>>,
+    servers: Arc<Mutex<HashMap<String, Server>>>,
     config: McdConf,
+}
+
+pub struct Status {
+
 }
 
 impl Mcd {
     pub fn new() -> Result<Mcd, ConnectionError> {
+
+        // Gets the mc-docker config.toml
         let mcd_file = if let Ok(a) = fs::read_to_string(format!("{MCD_PATH}/config.toml")) { a } else {
             return Err(ConnectionError::from("Failed to find config.toml from mc-docker"))
         };
         
+        // parses the mcd config into an object
         let config: McdConf = if let Ok(a) = toml::from_str(&mcd_file) { a } else {
             return Err(ConnectionError::from("Failed to parse mc-docker toml file"))
         };
 
+        // gets servers from server.json
         let svs_file = if let Ok(a) = fs::read_to_string("./servers.json") { a } else {
             return Err(ConnectionError::from("Failed to find servers.json file"))
         };
 
+        // parses the json into an object
         let svs: Servers = if let Ok(a) = serde_json::from_str(&svs_file) { a } else {
             return Err(ConnectionError::from("Failed to parse servers.json file"))
         };
 
+        // puts the servers in a hashmap with the key as the server's name and the value as the server object
         let servers = Arc::new(Mutex::new(HashMap::new()));
         for server in svs.servers.iter() {
-            servers.lock().unwrap().insert(server.name.clone(), Arc::new(Mutex::new(server.clone())));
+            servers.lock().unwrap().insert(server.name.clone(), server.clone());
         }
 
         Ok(Mcd{ servers, config })
@@ -148,17 +153,20 @@ impl Mcd {
 
 #[async_trait]
 impl MCInterface for Mcd {
+
+    // Send a text message to the server
     async fn send(&self, s: String, msg: String) {
-        let server = self.servers.lock().unwrap().get(&s).unwrap().lock().unwrap().clone(); 
         let mut cmd = Vec::new();
         cmd.push("tellraw".to_string());
         cmd.push("@a".to_string());
-        cmd.push(format!(r#"{{\"text\":\"[{}] {}\"}}"#, server.name, msg));
+        cmd.push(format!(r#"{{\"text\":\"[{}] {}\"}}"#, s, msg));
         self.execute(s, cmd).await;
     }
 
+    // Execute a command on the server
     async fn execute(&self, s: String, cmd: Vec<String>) {
-        let server = self.servers.lock().unwrap().get(&s).unwrap().lock().unwrap().clone(); 
+        let servers = self.servers.lock().unwrap();
+        let server = servers.get(&s).unwrap(); 
         let path = format!("https://localhost:{}", self.config.ws_port);
         let body = format!(r#"{{"args":[{}]}}"#, 
             cmd.iter().skip(1).fold(format!(r#""{}""#, cmd.iter().next().unwrap().clone()), 
@@ -167,9 +175,12 @@ impl MCInterface for Mcd {
             .send().await.expect("Failed to send command to server");
     }
 
-    async fn status(&self, s: String) -> String {
+    // Get the status of the server
+    async fn status(&self, s: String) -> Status {
         unimplemented!();
     }
+
+
 }
 
 // An interface to interact with Minecraft  server management systems
@@ -182,7 +193,7 @@ trait MCInterface {
     async fn execute(&self, s: String, cmd: Vec<String>);
 
     // get the status of a server
-    async fn status(&self, s: String) -> String; 
+    async fn status(&self, s: String) -> Status; 
 
     // Stream output
 
@@ -198,5 +209,5 @@ trait MCInterface {
 
     // Stop
 
-
+    // Pipe output to ?
 }
