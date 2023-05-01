@@ -5,6 +5,12 @@ use std::{env::var, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use dotenv;
 
+/* TODO
+    - Move away from ENV vars, move everything I can into one TOML
+    - Reimplement the good logger that i yeeted because it was trash
+    - More vertitle config file using optionals 
+ */
+
 /// Show this help menu
 #[poise::command(track_edits, slash_command)]
 async fn help(
@@ -52,9 +58,11 @@ async fn on_error(error: poise::FrameworkError<'_, State, Error>) {
     }
 }
 
+// Figure out on_msg
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
+
 //    env_logger::init();
 
     let options = poise::FrameworkOptions {
@@ -138,6 +146,7 @@ async fn main() {
         votes: Vote::reload(&serenity::Http::new(&token)).await.expect("Loading votes failed :(") 
     }));
 
+    // Handles voting thread in the bot for checking and reacting to votes ending
     let state2 = Arc::clone(&state);
     let http = serenity::Http::new(&token);
     // thread for checking votes incrementally
@@ -147,6 +156,10 @@ async fn main() {
             state2.write().await.votes = Vote::end_finished_votes(votes, &http).await;
         }
     });
+
+    // Starts all of the bridges on the server
+    // Each bridge spawns a thread forwarding the stream from that docker container to the specified channel for the obj
+    
 
     poise::Framework::builder()
         .token(&token)

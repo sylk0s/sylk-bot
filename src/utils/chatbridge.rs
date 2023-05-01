@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use websocket::futures::Stream;
 use std::fs;
 use std::collections::HashMap;
 use futures::StreamExt;
@@ -6,26 +7,77 @@ use crate::utils::error::ConnectionError;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
+// The server stores a list of bridges and then checks for each's channel each time
+// this is for forwarding to the server
+// bridge is specialized for handling interactions with discord
+// the bridge uses an interface to handle communicating with the underlying backend
+// this way any backend can be implemented for this object (for example, MCDaemon)
+// the backend bridge also spawn the thread that is sending the messages to the channel 
+// the backed just provides the ability to get a stream
+
+// Types of the bridges the bot can use, including both at once!
+enum BridgeType {
+    TAURUS,
+    MCDOCKER,
+}
+
 // Each bridge represents a single interface between a server and a discord channel
 // To create multiple links, multiple bridge objects are created and started
 struct Bridge<T> where T: MCInterface {
     interface: T,
+    channel: u64,
 }
 
 impl<T> Bridge<T> where T: MCInterface {
     // Creates a new bridge
-    fn new(kind: String, channel: u64, server: String) {
-        unimplemented!();
+    fn new(kind: BridgeType, channel: u64, server: &str) -> Bridge<T> {
+        Bridge {
+            interface: match kind {
+                TAURUS => Taurus::new(),
+                MCDOCKER => Mcd::new(),
+            },
+            channel,
+        }
     }
 
     // Starts the bridge
     // This will start both directions of message forwarding
-    async fn start() {
-
+    async fn start(&self) {
+        // Somehow will need to register this destination in the handler for the onMessageRecieved
     }
 }
 
 struct Taurus;
+
+impl Taurus {
+    pub fn new() -> Taurus {
+        Taurus {}
+    }
+}
+
+#[async_trait]
+impl MCInterface for Taurus {
+    // send a message to a server
+    async fn send(&self, s: &str, msg: &str) {
+        unimplemented!();
+    }
+
+    // execute a command on a server
+    async fn execute(&self, s: &str, cmd: Vec<&str>) {
+        unimplemented!();
+    }
+
+    // get the status of a server
+    async fn status(&self, s: &str) -> ServerStatus {
+        unimplemented!();
+    }
+
+    // Stream output
+    // TODO returns something useful
+    async fn stream(&self, s: &str) {
+        unimplemented!();
+    }
+}
 
 struct TauConf {
     chatbridge_id: u64,
@@ -69,7 +121,8 @@ struct TauConf {
 // fix this
 const MCD_PATH: &str = "/home/sylkos/.config/mc-docker";
 
-// literally steals MC-DOCKER's config file
+// literally steals MC-DOCKER's config file\
+// make this better pls
 #[derive(Debug, Deserialize)]
 struct McdConf {
     ws_port: u16,
@@ -90,10 +143,6 @@ struct Server {
 pub struct Mcd {
     servers: Arc<Mutex<HashMap<String, Server>>>,
     config: McdConf,
-}
-
-pub struct Status {
-
 }
 
 impl Mcd {
@@ -150,7 +199,7 @@ impl Mcd {
     }
     */
 }
-
+/*
 #[async_trait]
 impl MCInterface for Mcd {
 
@@ -182,20 +231,23 @@ impl MCInterface for Mcd {
 
 
 }
+*/
 
 // An interface to interact with Minecraft  server management systems
 #[async_trait]
 trait MCInterface {
     // send a message to a server
-    async fn send(&self, s: String, msg: String);
+    async fn send(&self, s: &str, msg: &str);
 
     // execute a command on a server
-    async fn execute(&self, s: String, cmd: Vec<String>);
+    async fn execute(&self, s: &str, cmd: Vec<&str>);
 
     // get the status of a server
-    async fn status(&self, s: String) -> Status; 
+    async fn status(&self, s: &str) -> ServerStatus; 
 
     // Stream output
+    // TODO returns something useful
+    async fn stream(&self, s: &str);
 
     /*
         let mut stream = reqwest::get(format!("{ADDR}/{}/{}", self.name, self.id)).await.unwrap().bytes_stream();
@@ -210,4 +262,24 @@ trait MCInterface {
     // Stop
 
     // Pipe output to ?
+}
+
+// The result of pinging a minecraft server's status
+struct ServerStatus<'a> {
+    online: bool,
+    onserver: Option<u32>,
+    max: Option<u32>,
+    name: Option<&'a str>,
+    motd: Option<&'a str>,
+    players: Option<Vec<&'a str>>,
+}
+
+impl<'a> ServerStatus<'a> {
+    fn formatted(&self) -> String {
+        if !self.online {
+            format!("The server did not respond. It is either offline, or not accessible to this machine.")
+        } else {
+            format!("{} is online with {}/{} players", self.name.clone().unwrap(), self.onserver.unwrap(), self.max.unwrap())
+        }
+    }
 }
