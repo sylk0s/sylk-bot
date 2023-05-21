@@ -1,3 +1,3 @@
 pub mod cloud;
-pub mod chatbridge;
+pub mod mc;
 pub mod error;

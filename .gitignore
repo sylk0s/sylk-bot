@@ -2,3 +2,4 @@
 target/
 firebase.json
 .vscode/
+.idea/

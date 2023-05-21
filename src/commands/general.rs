@@ -1,6 +1,5 @@
 use crate::{Context, Error};
 use poise::serenity_prelude as serenity;
-use std::fmt::Write as _;
 
 /// Boop the bot!
 #[poise::command(prefix_command, track_edits, slash_command)]

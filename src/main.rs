@@ -4,6 +4,7 @@ use poise::serenity_prelude as serenity;
 use std::{env::var, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use dotenv;
+use websocket::OwnedMessage;
 
 /* TODO
     - Move away from ENV vars, move everything I can into one TOML
@@ -143,17 +144,45 @@ async fn main() {
 
     let token = var("DISCORD_TOKEN").expect("Missing `DISCORD_TOKEN` env var, see README for more information.");
     let state = Arc::new(RwLock::new( Data { 
-        votes: Vote::reload(&serenity::Http::new(&token)).await.expect("Loading votes failed :(") 
+        votes: Vote::reload(&serenity::Http::new(&token)).await.expect("Loading votes failed :(") ,
+        //manager: None,
     }));
 
     // Handles voting thread in the bot for checking and reacting to votes ending
-    let state2 = Arc::clone(&state);
+    let state1 = Arc::clone(&state);
     let http = serenity::Http::new(&token);
     // thread for checking votes incrementally
     tokio::spawn(async move { 
         for _ in eventual::Timer::new().interval_ms(10000).iter() {
-            let votes = state2.read().await.votes.clone();
-            state2.write().await.votes = Vote::end_finished_votes(votes, &http).await;
+            let votes = state1.read().await.votes.clone();
+            state1.write().await.votes = Vote::end_finished_votes(votes, &http).await;
+        }
+    });
+
+    // Handles voting thread in the bot for checking and reacting to votes ending
+    let state2 = Arc::clone(&state);
+    let http2 = serenity::Http::new(&token);
+    // thread for checking votes incrementally
+    tokio::spawn(async move { 
+        let manager = state2.read().await.manager.clone();
+        // tldr send the messages in the channel
+        if let Some(man) = manager {
+            manager.stream("unused").map(|message| async move {
+                if let OwnedMessage::Text(msg) = message {
+                    match &msg[0..3] {
+                        "MSG" => {
+                        http2.get_channel(0).await.unwrap()
+                        .id().send_message(&http2, |m| { m.content(&msg[4..]) })
+                        .await.expect("Message failed");
+                        },
+                        _ => {
+                            // what is this and why did i include it
+                            //s_cache.send(msg);
+                            println!("Unknown WS message");
+                        }
+                    }
+                }
+            });
         }
     });
 
