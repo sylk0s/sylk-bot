@@ -33,7 +33,7 @@ pub async fn post(ctx: Context<'_>,
     #[description = "Hours to add to the vote timer"]
     hours: u32
 ) -> Result<(), Error> {
-    let votes = &mut ctx.data().write().await.votes;
+    let votes = &mut ctx.data().lock().await.votes;
     let status;
     if let Ok(new_vote) = Vote::on_vote_create(
             ctx,
@@ -59,7 +59,7 @@ pub async fn end(ctx: Context<'_>,
     #[description = "The UUID of the vote"]
     uuid: u128,
 ) -> Result<(), Error> {
-    let votes = &mut ctx.data().write().await.votes;
+    let votes = &mut ctx.data().lock().await.votes;
     if let Some(vote) = votes.get(&(uuid as u64)) {
         vote.on_vote_end(ctx).await.unwrap();
         votes.remove(&(uuid as u64));
@@ -80,7 +80,7 @@ pub async fn cancel(ctx: Context<'_>,
     // TODO explore this more later
     uuid: u128,
 ) -> Result<(), Error> {
-    let votes = &mut ctx.data().write().await.votes;
+    let votes = &mut ctx.data().lock().await.votes;
     if let Some(vote) = votes.get(&(uuid as u64)) {
 
         let msg = ctx.serenity_context().http.get_message(vote.ch_id,vote.msg_id).await.unwrap(); 
@@ -104,7 +104,7 @@ pub async fn cancel(ctx: Context<'_>,
 /// Lists the current votes
 #[poise::command(slash_command)]
 pub async fn list(ctx: Context<'_>) -> Result<(), Error> {    
-    let data = ctx.data().write().await;
+    let data = ctx.data().lock().await;
     let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).fold(String::new(), |a, b| { format!("{}\n{}", a, b) });
     ctx.send(|m| {
         m.embed(|e| {
@@ -119,7 +119,7 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 /// For testing; gets the debug information about votes
 #[poise::command(slash_command)]
 pub async fn debug(ctx: Context<'_>) -> Result<(), Error> {
-    let data = ctx.data().write().await;
+    let data = ctx.data().lock().await;
     // maps local votes into a string
     let votelist = data.votes.clone().into_values().map(|v| v.name.clone()).fold(String::new(), |a, b| { format!("{}\n{}", a, b) });
     // maps external votes into a string

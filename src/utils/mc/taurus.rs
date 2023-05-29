@@ -1,25 +1,39 @@
-use std::sync::mpsc;
-use crate::utils::mc::interface::MCInterface;
+use std::net::TcpStream;
+use std::sync::Arc;
+use crate::utils::mc::interface::{MCInterface, ServerStatus};
 use async_trait::async_trait;
-use websocket::OwnedMessage;
+use websocket::{ClientBuilder, Message, OwnedMessage};
+use websocket::receiver::Reader;
+use websocket::sender::Writer;
 use crate::utils::error::ConnectionError;
-/*
+
 pub struct Taurus {
-    receiver: Option<mpsc::Sender<OwnedMessage>>,
-    sender: Option<mpsc::Receiver<OwnedMessage>>,
+    password: String,
+    address: String,
 }
 
 impl Taurus {
     pub fn new() -> Result<Taurus, ConnectionError> {
-        Ok(Taurus { receiver: None, sender: None })
+        let password = String::new();
+        let address = "ws://127.0.0.1:7500";
+
+        Ok(Taurus {password, address: address.to_string()})
     }
 }
 
 #[async_trait]
 impl MCInterface for Taurus {
     // send a message to a server
-    async fn send(&self, s: &str, msg: &str) {
-        unimplemented!();
+    async fn send(&self, s: &str, msg: String) {
+        let ws = ClientBuilder::new(&*self.address).unwrap()
+            .connect_insecure().unwrap();
+
+        let (_, mut sender) = ws.split().unwrap();
+
+        println!("connecting to taurus...");
+        sender.send_message(&Message::text(self.password.clone())).unwrap();
+
+        sender.send_message(&Message::text(msg)).expect("MSG failed to send");
     }
 
     // execute a command on a server
@@ -33,18 +47,31 @@ impl MCInterface for Taurus {
     }
 
     // Stream output
-    // TODO returns something useful
-    async fn stream(&self, s: &str) -> Box<dyn Iterator<Item=OwnedMessage>> {
-        unimplemented!();
+    async fn stream(&self, s: &str) -> Box<dyn tokio_stream::Stream<Item=String>> {
+
+        let ws = ClientBuilder::new(&*self.address).unwrap()
+            .connect_insecure().unwrap();
+
+        let (mut receiver, mut sender) = ws.split().unwrap();
+
+        println!("connecting to taurus...");
+        sender.send_message(&Message::text(self.password.clone())).unwrap();
+        println!("authenticating...");
+        sender.send_message(&Message::text("PING")).unwrap();
+
+        Box::new(futures::stream::iter(
+            std::iter::from_fn(move || Some(receiver.recv_message().unwrap()))
+                .filter_map(|message| {
+                    if let OwnedMessage::Text(msg) = message {
+                        if let "MSG" = &msg[0..3] {
+                            return Some(String::from(&msg[4..]))
+                        }
+                    }
+                    return None;
+                })))
     }
 }
 
-struct TauConf {
-    chatbridge_id: u64,
-    password: String,
-}
-
-// todo move into a new file suggesting
 /*
     let ws = ClientBuilder::new("ws://127.0.0.1:7500").unwrap()
                      .connect_insecure().unwrap();
@@ -76,5 +103,4 @@ struct TauConf {
 
     // "await" or fail function from bot
     r_cache.recv();
-*/
 */

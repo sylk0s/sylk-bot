@@ -1,4 +1,5 @@
 // Error connecting to the MC interface
+#[derive(Debug)]
 pub struct ConnectionError {
     reason: String,
 }

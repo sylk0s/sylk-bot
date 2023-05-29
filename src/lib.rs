@@ -6,8 +6,8 @@ use crate::utils::mc::interface::MCInterface;
 
 use poise::serenity_prelude as serenity;
 use std::{collections::HashMap, sync::Arc};
-use std::sync::Mutex;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
+use crate::utils::mc::bridge::Bridge;
 
 // Types used by all command functions
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -21,4 +21,5 @@ pub type State = Arc<Mutex<Data>>;
 pub struct Data {
     pub votes: HashMap<u64, Vote>,
     pub manager: Option<Box<dyn MCInterface>>,
+    pub bridges: Vec<Bridge>,
 }
